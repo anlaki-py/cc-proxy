@@ -121,13 +121,15 @@ To make the env vars stick across shells, put the `export` (Linux/macOS) or
 
 ## Flags
 
-| Flag          | Env var           | Default                          |
-|---------------|-------------------|----------------------------------|
-| `-b, --base`  | `OPENAI_BASE_URL` | `http://localhost:11434/v1`      |
-| `-k, --key`   | `OPENAI_API_KEY`  | _empty_                          |
-| `-p, --port`  | `PORT`            | `8082`                           |
-| `-m, --model` | `MODEL_OVERRIDE`  | _empty_                          |
-|               | `LOG=1`           | _off_ — log every request        |
+| Flag                   | Env var             | Default                          |
+|------------------------|---------------------|----------------------------------|
+| `-b, --base`           | `OPENAI_BASE_URL`   | `http://localhost:11434/v1`      |
+| `-k, --key`            | `OPENAI_API_KEY`    | _empty_                          |
+| `-p, --port`           | `PORT`              | `8082`                           |
+| `-m, --model`          | `MODEL_OVERRIDE`    | _empty_                          |
+| `--image-fetch`        | `IMAGE_FETCH=1`     | _off_ — fetch+base64 URL images  |
+| `--max-image-bytes <n>`| `MAX_IMAGE_BYTES`   | `20971520` (20 MB)               |
+|                        | `LOG=1`             | _off_ — log every request        |
 
 ## What it does
 
@@ -144,5 +146,25 @@ To make the env vars stick across shells, put the `export` (Linux/macOS) or
 - Stitches streaming tool-call deltas by OpenAI's `index` field
 - Emits proper Anthropic SSE events: `message_start`, `content_block_*`,
   `message_delta`, `message_stop`
+- Emits a `ping` SSE keepalive after `message_start` and every 15s during
+  long-running reasoning calls so intermediate proxies don't RST idle streams
+- Retries upstream `fetch` on `429`, `502`, `503`, `504`, `529`, and transient
+  network errors (exponential backoff with jitter, honors `Retry-After`,
+  30s total deadline). Retries only before the first byte is sent to the
+  client — mid-stream retry is unsafe.
+- Wraps upstream errors in the Anthropic error envelope
+  (`{type: "error", error: {type, message}, request_id: "req_..."}`) so
+  Claude Code's SDK can show proper toasts and the `request_id` ends up in
+  debug logs
+- Scales `input_tokens` / `output_tokens` to a virtual 200k context window
+  (using a per-model `MODEL_CONTEXT_LIMITS` table) so Claude Code's
+  auto-compaction triggers correctly when the upstream is gpt-4 (8k),
+  gpt-5 (1M), DeepSeek (64k), etc. Anthropic-native upstreams are 1:1
+  (no scaling).
+- Image sources: `base64` is passed through, `url` is passed through
+  (or fetched+base64'd server-side with `--image-fetch`), and `file`
+  (Anthropic Files API) is rejected with a 400 instead of being silently
+  dropped. Image blocks inside `tool_result.content` arrays are routed
+  to a follow-up user message since OpenAI tool messages are text-only.
 - `HEAD /` and `GET /health` for Claude Code's startup probes
 - `GET /v1/models` passes through to upstream
