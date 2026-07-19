@@ -83,13 +83,13 @@ function writeJsonError(res, status, message) {
 
 // ---------- Anthropic request -> OpenAI request ----------
 
-function anthropicToOpenAIMessages(anth) {
+function anthropicToOpenAIMessages(anth, model) {
   const out = [];
   if (anth.system) {
     const sys = typeof anth.system === 'string'
       ? anth.system
       : (anth.system || []).map(b => b.text || '').join('\n\n');
-    if (sys) out.push({ role: 'system', content: sys });
+    if (sys) out.push({ role: needsMaxCompletionTokens(model) ? 'developer' : 'system', content: sys });
   }
   for (const m of anth.messages || []) {
     if (typeof m.content === 'string') {
@@ -231,14 +231,16 @@ function buildOpenAIRequest(anth) {
   const model = MODEL_OVERRIDE || anth.model;
   const req = {
     model,
-    messages: anthropicToOpenAIMessages(anth),
+    messages: anthropicToOpenAIMessages(anth, model),
     stream: !!anth.stream,
   };
   const maxTok = capMaxTokens(anth.max_tokens, model);
   // For o-series and gpt-5 we use max_completion_tokens instead of max_tokens.
   if (needsMaxCompletionTokens(model) && maxTok > 0) req.max_completion_tokens = maxTok;
   else if (maxTok > 0) req.max_tokens = maxTok;
-  if (anth.temperature !== undefined) req.temperature = anth.temperature;
+  if (anth.temperature !== undefined && !needsMaxCompletionTokens(model)) {
+    req.temperature = anth.temperature;
+  }
   if (anth.top_p !== undefined) req.top_p = anth.top_p;
   if (anth.stop_sequences) req.stop = anth.stop_sequences;
   const tools = anthropicToOpenAITools(anth.tools);
@@ -261,13 +263,15 @@ const MODEL_MAX_TOKENS = {
   'gpt-3.5-turbo': 4096, 'gpt-3.5-turbo-0125': 4096, 'gpt-3.5-turbo-1106': 4096, 'gpt-3.5-turbo-16k': 4096,
   o1: 100000, 'o1-preview': 32768, 'o1-mini': 65536,
   o3: 100000, 'o3-mini': 100000,
+  'gpt-5': 16384, 'gpt-5-mini': 16384, 'gpt-5-nano': 16384, 'gpt-5-chat-latest': 16384,
+  'gpt-5.1': 16384, 'gpt-5.2': 16384, 'gpt-5.4': 16384, 'gpt-5.5': 16384, 'gpt-5.6': 16384,
   'claude-3-5-sonnet': 8192, 'claude-3-5-sonnet-20241022': 8192, 'claude-3-5-sonnet-20240620': 8192,
   'claude-3-5-haiku': 8192, 'claude-3-5-haiku-20241022': 8192,
   'claude-3-opus': 4096, 'claude-3-sonnet': 4096, 'claude-3-haiku': 4096,
   'gemini-2.0-flash': 8192, 'gemini-2.0-flash-lite': 8192, 'gemini-2.0-pro': 8192, 'gemini-2.0-flash-exp': 8192,
   'gemini-1.5-pro': 8192, 'gemini-1.5-flash': 8192,
 };
-const DEFAULT_MAX_TOKENS = 4096;
+const DEFAULT_MAX_TOKENS = 16384;
 
 function capMaxTokens(requested, model) {
   if (!requested || requested <= 0) return requested;
@@ -296,22 +300,27 @@ function needsMaxCompletionTokens(model) {
 // (the common case) we just drop `thinking` and continue.
 function applyThinking(anth, req, model) {
   const t = anth.thinking;
-  if (!t || !t.type || t.type === 'disabled') return;
-  const budget = t.budget_tokens || 0;
-  if (budget <= 0) return;
+  if (!t || !t.type || t.type === 'disabled') {
+    // On known reasoning models, explicitly turn reasoning off so the upstream
+    // doesn't burn budget when the client asked for none.
+    if (needsMaxCompletionTokens(model)) req.reasoning_effort = 'none';
+    return;
+  }
   const m = model.toLowerCase();
+  const budget = t.budget_tokens || 0;
   if (needsMaxCompletionTokens(m)) {
-    if (m.startsWith('gpt-5')) {
-      req.reasoning_effort =
-        budget >= 64000 ? 'high' :
-        budget >= 16000 ? 'medium' :
-        'low';
+    if (t.type === 'adaptive') {
+      // Anthropic's adaptive mode: let the model pick. medium is a safe default.
+      req.reasoning_effort = 'medium';
+    } else if (budget <= 0) {
+      req.reasoning_effort = 'low';
     } else {
       req.reasoning_effort =
-        budget >= 64000 ? 'high' :
-        budget >= 32000 ? 'high' :
-        budget >= 16000 ? 'medium' :
-        budget >= 4000 ? 'low' : 'minimal';
+        budget >= 80000 ? 'xhigh' :
+        budget >= 24000 ? 'high' :
+        budget >= 8000  ? 'medium' :
+        budget >= 2000  ? 'low' :
+        'minimal'; // legacy o1/o1-mini only; gpt-5+ will reject
     }
   } else if (m.includes('grok')) {
     req.reasoning_effort = budget >= 20000 ? 'high' : 'low';
@@ -322,7 +331,7 @@ function applyThinking(anth, req, model) {
   } else if (m.includes('qwen')) {
     req.enable_thinking = true;
     req.thinking_budget = budget;
-  } else if ((m.includes('deepseek') || m.startsWith('deepseek/')) &&
+  } else if (m.includes('deepseek') &&
              (m.includes('r1') || m.includes('v3.1') || m.includes('v3.2') || m.includes('thinking'))) {
     req.enable_thinking = true;
   }
@@ -338,6 +347,8 @@ class StreamBuilder {
     this.blockIndex = 0;
     this.textBlockOpen = false;
     this.textBlockIndex = -1;
+    this.thinkingBlockOpen = false;
+    this.thinkingBlockIndex = -1;
     this.toolBlocks = new Map();   // tool_call_id -> {index, name, args}
     this.toolIndexMap = new Map(); // oai delta index -> tool_call_id
     this.inputTokens = 0;
@@ -361,11 +372,47 @@ class StreamBuilder {
     });
   }
 
+  // Returns the SSE chunk + true if it opened a new block; false if the
+  // thinking block is already open or if `text` was empty.
+  openThinking(text) {
+    if (!text) return '';
+    let out = '';
+    if (!this.thinkingBlockOpen) {
+      this.thinkingBlockIndex = this.blockIndex++;
+      this.thinkingBlockOpen = true;
+      out += sse('content_block_start', {
+        type: 'content_block_start',
+        index: this.thinkingBlockIndex,
+        content_block: { type: 'thinking', thinking: '' },
+      });
+    }
+    out += sse('content_block_delta', {
+      type: 'content_block_delta',
+      index: this.thinkingBlockIndex,
+      delta: { type: 'thinking_delta', thinking: text },
+    });
+    return out;
+  }
+
+  closeThinking() {
+    if (!this.thinkingBlockOpen) return '';
+    this.thinkingBlockOpen = false;
+    const out = sse('content_block_stop', {
+      type: 'content_block_stop',
+      index: this.thinkingBlockIndex,
+    });
+    this.thinkingBlockIndex = -1;
+    return out;
+  }
+
   openText() {
     if (this.textBlockOpen) return '';
+    // If a thinking block is still open when text starts, close it first
+    // (mirrors what ollama's anthropic adapter does at line ~821).
+    const prefix = this.closeThinking();
     this.textBlockOpen = true;
     this.textBlockIndex = this.blockIndex++;
-    return sse('content_block_start', {
+    return prefix + sse('content_block_start', {
       type: 'content_block_start',
       index: this.textBlockIndex,
       content_block: { type: 'text', text: '' },
@@ -393,6 +440,7 @@ class StreamBuilder {
   openToolCall(oaiIndex, id, name) {
     let out = '';
     if (this.textBlockOpen) out += this.closeText();
+    out += this.closeThinking();
     const idx = this.blockIndex++;
     this.toolBlocks.set(id, { index: idx, name, args: '' });
     this.toolIndexMap.set(oaiIndex, id);
@@ -430,12 +478,16 @@ class StreamBuilder {
   finish(usage) {
     let out = '';
     if (this.textBlockOpen) out += this.closeText();
+    out += this.closeThinking();
     out += this.closeAllToolBlocks();
     const outputTokens = usage?.completion_tokens ?? this.outputTokens;
     out += sse('message_delta', {
       type: 'message_delta',
       delta: { stop_reason: this.finishReason, stop_sequence: null },
-      usage: { output_tokens: outputTokens },
+      usage: {
+        output_tokens: outputTokens,
+        reasoning_tokens: usage?.output_tokens_details?.reasoning_tokens || 0,
+      },
     });
     out += sse('message_stop', { type: 'message_stop' });
     return out;
@@ -557,10 +609,15 @@ const server = http.createServer(async (req, res) => {
   if (!oaiReq.stream) {
     const data = await upstream.json();
     const choice = data.choices?.[0] || {};
+    const msg = choice.message || {};
     const content = [];
-    if (choice.message?.content) content.push({ type: 'text', text: choice.message.content });
-    if (Array.isArray(choice.message?.tool_calls)) {
-      for (const tc of choice.message.tool_calls) {
+    // Reasoning comes before text in the response, matching the streaming
+    // block order (ollama/anthropic.go:659-680 and CLASP/stream.go:206-212).
+    const thinking = msg.reasoning_content ?? msg.reasoning;
+    if (thinking) content.push({ type: 'thinking', thinking });
+    if (msg.content) content.push({ type: 'text', text: msg.content });
+    if (Array.isArray(msg.tool_calls)) {
+      for (const tc of msg.tool_calls) {
         let input = {};
         try { input = JSON.parse(tc.function?.arguments || '{}'); } catch (e) {}
         content.push({ type: 'tool_use', id: tc.id, name: tc.function.name, input });
@@ -578,6 +635,7 @@ const server = http.createServer(async (req, res) => {
       usage: {
         input_tokens: data.usage?.prompt_tokens || 0,
         output_tokens: data.usage?.completion_tokens || 0,
+        reasoning_tokens: data.usage?.output_tokens_details?.reasoning_tokens || 0,
       },
     }));
     return;
@@ -611,6 +669,14 @@ const server = http.createServer(async (req, res) => {
         const choice = ev.choices?.[0];
         if (!choice) continue;
         const delta = choice.delta || {};
+        // Reasoning/thinking content. Some providers use `reasoning` (Azure
+        // OpenAI, mirrors CLASP's stream.go delta.Reasoning), others use
+        // `reasoning_content` (DeepSeek-R1, Qwen, some Ollama-compat shims).
+        const thinking = delta.reasoning ?? delta.reasoning_content;
+        if (thinking) {
+          const out = b.openThinking(thinking);
+          if (out) res.write(out);
+        }
         if (delta.content) {
           const out = b.text(delta.content);
           if (out) res.write(out);
