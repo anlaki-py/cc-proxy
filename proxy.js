@@ -965,7 +965,6 @@ server.listen(PORT, () => {
   console.log('');
   console.log('To use with Claude Code:');
   console.log('');
-  console.log(`export ANTHROPIC_BASE_URL=http://localhost:${PORT} && export ANTHROPIC_AUTH_TOKEN=any-value`);
-  console.log(`claude`);
+  console.log(`ANTHROPIC_BASE_URL=http://localhost:${PORT} ANTHROPIC_AUTH_TOKEN=any-value claude`);
   console.log('');
 });
