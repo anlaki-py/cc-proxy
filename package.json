@@ -1,0 +1,57 @@
+{
+  "name": "cc-proxy",
+  "version": "1.0.0",
+  "description": "A zero-dependency Node.js proxy that lets Claude Code talk to any OpenAI-compatible /v1/chat/completions endpoint (Ollama, OpenAI, OpenRouter, vLLM, and others).",
+  "keywords": [
+    "claude-code",
+    "anthropic",
+    "openai",
+    "proxy",
+    "llm",
+    "ollama",
+    "openrouter",
+    "vllm",
+    "cli"
+  ],
+  "homepage": "https://github.com/anlaki-py/cc-proxy#readme",
+  "bugs": {
+    "url": "https://github.com/anlaki-py/cc-proxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anlaki-py/cc-proxy.git"
+  },
+  "license": "MIT",
+  "author": "anlaki",
+  "bin": {
+    "cc-proxy": "./bin/cc-proxy.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node bin/cc-proxy.js",
+    "test": "node --test test/",
+    "test:coverage": "node --test --experimental-test-coverage test/",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write .",
+    "prepublishOnly": "npm run lint && npm run test"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "eslint": "^9.x",
+    "prettier": "^3.x"
+  }
+}
