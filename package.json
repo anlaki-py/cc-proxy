@@ -38,8 +38,8 @@
   },
   "scripts": {
     "start": "node bin/cc-proxy.js",
-    "test": "node --test test/unit/*.test.js && node --test --test-concurrency=1 test/integration/*.test.js",
-    "test:coverage": "node --test --experimental-test-coverage --test-concurrency=1 test/unit/*.test.js test/integration/*.test.js",
+    "test": "node scripts/run-tests.js test/unit && node scripts/run-tests.js test/integration",
+    "test:coverage": "node scripts/run-tests.js --coverage test/unit test/integration",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --check .",
