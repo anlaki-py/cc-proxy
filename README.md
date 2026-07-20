@@ -1,12 +1,47 @@
 # cc-proxy
 
-A Node.js proxy that lets **Claude Code** talk to any **OpenAI-compatible**
-`/v1/chat/completions` endpoint (Ollama, OpenAI, OpenRouter, vLLM, etc.).
-Zero dependencies. Node 18+.
+A zero-dependency Node.js proxy that lets **Claude Code** talk to any
+**OpenAI-compatible** `/v1/chat/completions` endpoint (Ollama, OpenAI,
+OpenRouter, vLLM, and others).
+
+[![npm version](https://img.shields.io/npm/v/cc-proxy.svg)](https://www.npmjs.com/package/cc-proxy)
+[![Node](https://img.shields.io/badge/node-%3E%3D18-blue.svg)](https://nodejs.org)
+[![CI](https://github.com/anlaki-py/cc-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/anlaki-py/cc-proxy/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ```
 Claude Code  --[Anthropic Messages API]-->  cc-proxy  --[OpenAI Chat Completions]-->  upstream
 ```
+
+## Installation
+
+### Quick start (no installation)
+
+```sh
+npx cc-proxy --base https://api.openai.com/v1 --key sk-xxx --port 8082
+```
+
+### Global install
+
+```sh
+npm install -g cc-proxy
+cc-proxy --base https://api.openai.com/v1 --key sk-xxx --port 8082
+```
+
+### Manual (no npm)
+
+If you'd rather not use npm, the proxy is still just one file:
+
+```sh
+curl -O https://raw.githubusercontent.com/anlaki-py/cc-proxy/main/lib/proxy.js
+node proxy.js --base https://api.openai.com/v1 --key sk-xxx --port 8082
+```
+
+## Requirements
+
+Node.js 18 or newer. The proxy relies on the global `fetch` API and
+`AbortSignal.timeout`, both stable in Node since 18.0, so there is no
+polyfill and no way to run this on an older Node release.
 
 ## How it works
 
@@ -20,58 +55,6 @@ Claude Code  --[Anthropic Messages API]-->  cc-proxy  --[OpenAI Chat Completions
    (`message_start`, `content_block_delta`, `message_delta`, `message_stop`)
    with tool-call deltas stitched together by OpenAI's `index` field.
 5. Claude Code parses the stream like it came from Anthropic's real API.
-
-## Setup
-
-You need Node 18+ and the Claude Code CLI (`claude`).
-
-### Linux / macOS
-
-```sh
-# 1. Get the proxy script
-curl -O https://raw.githubusercontent.com/you/cc-proxy/main/proxy.js
-# (or just copy proxy.js from this repo)
-
-# 2. Check your Node version
-node --version    # needs to print v18.x or higher
-
-# 3. Start the proxy
-node proxy.js --base https://api.openai.com/v1 --key sk-xxx --port 8082
-```
-
-You should see:
-
-```
-Anthropic <-> OpenAI proxy listening on http://localhost:8082
-  upstream: https://api.openai.com/v1
-  auth:     bearer ***xxxx
-```
-
-Leave that terminal open. Open a new one and run Claude Code.
-
-### Windows (PowerShell)
-
-```powershell
-# 1. Get the proxy script
-# Download proxy.js from the repo and put it in a folder, e.g. C:\tools\cc-proxy\
-
-# 2. Check your Node version
-node --version    # needs to print v18.x or higher
-
-# 3. Start the proxy
-cd C:\tools\cc-proxy
-node proxy.js --base https://api.openai.com/v1 --key sk-xxx --port 8082
-```
-
-You should see:
-
-```
-Anthropic <-> OpenAI proxy listening on http://localhost:8082
-  upstream: https://api.openai.com/v1
-  auth:     bearer ***xxxx
-```
-
-Leave that PowerShell window open. Open a new one for Claude Code.
 
 ## Use it with Claude Code
 
@@ -168,3 +151,31 @@ To make the env vars stick across shells, put the `export` (Linux/macOS) or
   to a follow-up user message since OpenAI tool messages are text-only.
 - `HEAD /` and `GET /health` for Claude Code's startup probes
 - `GET /v1/models` passes through to upstream
+
+## Updating
+
+```sh
+npm update -g cc-proxy     # or: npm install -g cc-proxy@latest
+```
+
+`npx cc-proxy` always fetches the latest published version, so it never
+needs manual updating.
+
+## Security
+
+The proxy holds an upstream API key in process memory and forwards it as
+a Bearer token on every request. It binds an HTTP server to a local port
+with no built-in authentication. See [SECURITY.md](SECURITY.md) for
+details on what is and isn't in scope for security reports.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
