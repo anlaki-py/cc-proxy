@@ -1,0 +1,10 @@
+# Force LF line endings in the working tree on checkout so Prettier's
+# default `endOfLine: "lf"` passes on Windows runners too. Without this,
+# git's `core.autocrlf=true` (the default on Windows) converts LF->CRLF
+# on checkout and `prettier --check` fails every file.
+* text=auto eol=lf
+
+# Binary files — never normalize.
+*.png binary
+*.jpg binary
+*.ico binary
