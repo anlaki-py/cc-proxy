@@ -964,9 +964,8 @@ server.listen(PORT, () => {
   if (MODEL_OVERRIDE) console.log(`  model:    ${MODEL_OVERRIDE} (override)`);
   console.log('');
   console.log('To use with Claude Code:');
-  console.log(`  export ANTHROPIC_BASE_URL=http://localhost:${PORT}`);
-  console.log(`  export ANTHROPIC_AUTH_TOKEN=any-value`);
-  console.log(`  claude --bare                  # interactive`);
-  console.log(`  claude -p --bare "your prompt" # non-interactive`);
+  console.log('');
+  console.log(`export ANTHROPIC_BASE_URL=http://localhost:${PORT} && export ANTHROPIC_AUTH_TOKEN=any-value`);
+  console.log(`claude`);
   console.log('');
 });
