@@ -120,7 +120,10 @@ To make the env vars stick across shells, put the `export` (Linux/macOS) or
 - Translates Anthropic `messages[].content` blocks to OpenAI shapes
 - Cleans up tool schemas (strips `format: "uri"`, schema-level `strict`,
   re-derives `required` to only truly-required params)
-- Caps `max_tokens` per model family (gpt-4o=16k, o1=100k, etc.)
+- Caps `max_tokens` per model family (gpt-4o=16k, o1=100k, etc.) — values
+  are looked up from [models.dev](https://models.dev/) at boot, with a
+  24h on-disk cache (`.cache/models.dev.json`) and a silent background
+  refresh. First-ever boot blocks briefly to download.
 - Maps `thinking.budget_tokens` to current OpenAI Chat Completions `reasoning_effort`
   enum (`none|low|medium|high|xhigh`); sends `reasoning_effort: 'none'` when Claude
   Code disables thinking, sends `role: 'developer'` instead of `system` for
@@ -167,6 +170,24 @@ The proxy holds an upstream API key in process memory and forwards it as
 a Bearer token on every request. It binds an HTTP server to a local port
 with no built-in authentication. See [SECURITY.md](SECURITY.md) for
 details on what is and isn't in scope for security reports.
+
+## Development
+
+The published artifact is `lib/proxy.js`, a single self-contained
+CommonJS file built by concatenating the `src/` tree. To work on the
+proxy:
+
+1. Edit files under `src/` (one module per domain — `cli.js`, `request.js`,
+   `stream.js`, etc.).
+2. Run `npm run build` to regenerate `lib/proxy.js`.
+3. Run `npm test` (this rebuilds first via `pretest`).
+4. Run `npm run lint && npm run format` before opening a PR.
+
+The manual-install `npx cc-proxy` curl URL points at `lib/proxy.js` —
+that file is git-tracked, auto-generated, and identical across rebuilds
+(idempotent). `src/` and `scripts/` are not shipped to npm; the
+`"files"` whitelist in `package.json` only includes `bin/`, `lib/`, and
+the docs.
 
 ## Changelog
 

@@ -38,13 +38,16 @@
   },
   "scripts": {
     "start": "node bin/cc-proxy.js",
+    "build": "node scripts/build.js",
+    "prewarm-catalog": "node scripts/prewarm-catalog.js",
+    "pretest": "npm run build && npm run prewarm-catalog",
     "test": "node scripts/run-tests.js test/unit && node scripts/run-tests.js test/integration",
     "test:coverage": "node scripts/run-tests.js --coverage test/unit test/integration",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
-    "prepublishOnly": "npm run lint && npm run test"
+    "prepublishOnly": "npm run build && npm run lint && npm run test"
   },
   "publishConfig": {
     "access": "public",

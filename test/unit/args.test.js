@@ -2,12 +2,12 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { loadProxy } = require('../helpers/load.js');
+const { parseArgs } = require('../../src/cli.js');
 
-const p = loadProxy(['--port', '0']);
-
+// parseArgs is pure — no server, no env, no side effects. We exercise it
+// directly without the old test/loader vm sandbox.
 test('parseArgs: long-form flags', () => {
-  const r = p.parseArgs([
+  const r = parseArgs([
     '--base',
     'http://x.com/v1',
     '--key',
@@ -29,7 +29,7 @@ test('parseArgs: long-form flags', () => {
 });
 
 test('parseArgs: short-form flags', () => {
-  const r = p.parseArgs(['-b', 'http://x', '-k', 'k', '-p', '80', '-m', 'gpt']);
+  const r = parseArgs(['-b', 'http://x', '-k', 'k', '-p', '80', '-m', 'gpt']);
   assert.equal(r.base, 'http://x');
   assert.equal(r.key, 'k');
   assert.equal(r.port, '80');
@@ -37,15 +37,15 @@ test('parseArgs: short-form flags', () => {
 });
 
 test('parseArgs: empty argv returns empty object with no keys', () => {
-  assert.equal(Object.keys(p.parseArgs([])).length, 0);
+  assert.equal(Object.keys(parseArgs([])).length, 0);
 });
 
 test('parseArgs: unknown flag is ignored', () => {
-  const r = p.parseArgs(['--unknown', 'value', '-b', 'x']);
+  const r = parseArgs(['--unknown', 'value', '-b', 'x']);
   assert.equal(r.base, 'x');
   assert.equal(r.unknown, undefined);
 });
 
 test('parseArgs: --image-fetch sets boolean true', () => {
-  assert.equal(p.parseArgs(['--image-fetch']).imageFetch, true);
+  assert.equal(parseArgs(['--image-fetch']).imageFetch, true);
 });

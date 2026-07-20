@@ -22,6 +22,6 @@ module.exports = [
     },
   },
   {
-    ignores: ['node_modules/', 'coverage/', 'test/fixtures/'],
+    ignores: ['node_modules/', 'coverage/', 'test/fixtures/', 'lib/proxy.js'],
   },
 ];

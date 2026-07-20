@@ -2,12 +2,10 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { loadProxy } = require('../helpers/load.js');
-
-const p = loadProxy([]);
+const { cleanupSchemaForChatCompletions } = require('../../src/schema.js');
 
 function clean(schema) {
-  return p.cleanupSchemaForChatCompletions(schema);
+  return cleanupSchemaForChatCompletions(schema);
 }
 
 test('strips format: "uri" at any depth', () => {

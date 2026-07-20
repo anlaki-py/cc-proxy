@@ -1,125 +1,115 @@
 'use strict';
 
+require('../helpers/load-catalog.js');
+
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { loadProxy } = require('../helpers/load.js');
+const { applyThinking } = require('../../src/thinking.js');
+const { scaleUsage } = require('../../src/models.js');
+const { findModel } = require('../../src/catalog.js');
 
-const p = loadProxy([]);
+// ---------- disabled / no thinking ----------
 
 test('applyThinking: disabled thinking on reasoning model sends reasoning_effort: none', () => {
+  // gpt-5 has reasoning:true in the catalog.
   const anth = { thinking: { type: 'disabled' } };
   const req = {};
-  p.applyThinking(anth, req, 'o1');
+  applyThinking(anth, req, 'gpt-5');
   assert.equal(req.reasoning_effort, 'none');
+});
+
+test('applyThinking: disabled on non-reasoning model → no-op', () => {
+  const req = {};
+  applyThinking({ thinking: { type: 'disabled' } }, req, 'gpt-4o');
+  assert.deepEqual(req, {});
 });
 
 test('applyThinking: no thinking field at all → no-op for non-reasoning models', () => {
   const req = {};
-  p.applyThinking({}, req, 'gpt-4o');
+  applyThinking({}, req, 'gpt-4o');
   assert.deepEqual(req, {});
 });
 
-test('applyThinking: o-series budget → xhigh/high/medium/low/minimal ladder', () => {
-  const cases = [
-    [80000, 'xhigh'],
-    [79999, 'high'],
-    [24000, 'high'],
-    [23999, 'medium'],
-    [8000, 'medium'],
-    [7999, 'low'],
-    [2000, 'low'],
-    [1999, 'minimal'],
-  ];
-  for (const [budget, expected] of cases) {
-    const req = {};
-    p.applyThinking({ thinking: { type: 'enabled', budget_tokens: budget } }, req, 'o1');
-    assert.equal(req.reasoning_effort, expected, `budget=${budget}`);
-  }
+// ---------- effort-style (reasoning_options has {type:'effort', values:[...]}) ----------
+
+test('applyThinking: gpt-5 with high budget → reasoning_effort=high', () => {
+  // gpt-5 reasoning_options.values = ['minimal','low','medium','high']
+  // budget 80000 maps to the top of the ladder → top of values → 'high'
+  const req = {};
+  applyThinking({ thinking: { type: 'enabled', budget_tokens: 80000 } }, req, 'gpt-5');
+  assert.equal(req.reasoning_effort, 'high');
 });
 
-test('applyThinking: adaptive mode on o-series → medium', () => {
+test('applyThinking: gpt-5 with low budget → reasoning_effort=lowest allowed value', () => {
+  // The catalog's lowest value is 'minimal' (not 'low'). The dispatcher
+  // maps a low budget to the first value in the model's allowed list.
   const req = {};
-  p.applyThinking({ thinking: { type: 'adaptive' } }, req, 'gpt-5');
+  applyThinking({ thinking: { type: 'enabled', budget_tokens: 100 } }, req, 'gpt-5');
+  assert.equal(req.reasoning_effort, 'minimal');
+});
+
+test('applyThinking: gpt-5 with no budget → reasoning_effort=lowest allowed', () => {
+  // budget=0 → below all ladder rungs → first value
+  const req = {};
+  applyThinking({ thinking: { type: 'enabled', budget_tokens: 0 } }, req, 'gpt-5');
+  assert.equal(req.reasoning_effort, 'minimal');
+});
+
+test('applyThinking: gpt-5 with mid budget → mid value', () => {
+  // gpt-5 values = [minimal,low,medium,high]; budget 24000 clears the
+  // 3rd ladder rung (24000) → values[2] = 'medium'.
+  const req = {};
+  applyThinking({ thinking: { type: 'enabled', budget_tokens: 24000 } }, req, 'gpt-5');
   assert.equal(req.reasoning_effort, 'medium');
 });
 
-test('applyThinking: o-series with budget <= 0 → low', () => {
+// ---------- budget_tokens-style (gemini-2.5) ----------
+
+test('applyThinking: gemini-2.5-pro → thinking_budget clamped to [128, 32768]', () => {
+  // gemini-2.5-pro reasoning_options = [{type:'budget_tokens', min:128, max:32768}]
   const req = {};
-  p.applyThinking({ thinking: { type: 'enabled', budget_tokens: 0 } }, req, 'o1');
-  assert.equal(req.reasoning_effort, 'low');
+  applyThinking({ thinking: { type: 'enabled', budget_tokens: 100000 } }, req, 'gemini-2.5-pro');
+  assert.equal(req.thinking_budget, 32768);
 });
 
-test('applyThinking: grok model', () => {
-  const req1 = {};
-  p.applyThinking({ thinking: { type: 'enabled', budget_tokens: 20000 } }, req1, 'grok-2');
-  assert.equal(req1.reasoning_effort, 'high');
-
-  const req2 = {};
-  p.applyThinking({ thinking: { type: 'enabled', budget_tokens: 19999 } }, req2, 'grok-2');
-  assert.equal(req2.reasoning_effort, 'low');
-});
-
-test('applyThinking: gemini-3 → thinking_level', () => {
-  const req1 = {};
-  p.applyThinking({ thinking: { type: 'enabled', budget_tokens: 20000 } }, req1, 'gemini-3-pro');
-  assert.equal(req1.thinking_level, 'high');
-
-  const req2 = {};
-  p.applyThinking({ thinking: { type: 'enabled', budget_tokens: 1000 } }, req2, 'gemini/3-pro');
-  assert.equal(req2.thinking_level, 'low');
-});
-
-test('applyThinking: gemini-2.5 → thinking_config with cap of 24576', () => {
+test('applyThinking: gemini-2.5 with small budget → passes through (above min)', () => {
   const req = {};
-  p.applyThinking({ thinking: { type: 'enabled', budget_tokens: 100000 } }, req, 'gemini-2.5-pro');
-  assert.deepEqual(req.thinking_config, { thinking_budget: 24576 });
-
-  const req2 = {};
-  p.applyThinking({ thinking: { type: 'enabled', budget_tokens: 1000 } }, req2, 'gemini-2.5-flash');
-  assert.deepEqual(req2.thinking_config, { thinking_budget: 1000 });
+  applyThinking({ thinking: { type: 'enabled', budget_tokens: 1000 } }, req, 'gemini-2.5-pro');
+  assert.equal(req.thinking_budget, 1000);
 });
 
-test('applyThinking: qwen → enable_thinking + thinking_budget', () => {
-  const req = {};
-  p.applyThinking({ thinking: { type: 'enabled', budget_tokens: 5000 } }, req, 'qwen-2.5-72b');
-  assert.equal(req.enable_thinking, true);
-  assert.equal(req.thinking_budget, 5000);
-});
-
-test('applyThinking: deepseek-r1 → enable_thinking only', () => {
-  const req = {};
-  p.applyThinking({ thinking: { type: 'enabled', budget_tokens: 8000 } }, req, 'deepseek-r1');
-  assert.equal(req.enable_thinking, true);
-});
-
-test('applyThinking: deepseek-v3.1+ → enable_thinking', () => {
-  for (const m of ['deepseek-v3.1', 'deepseek-v3.2', 'deepseek-thinking']) {
-    const req = {};
-    p.applyThinking({ thinking: { type: 'enabled', budget_tokens: 1000 } }, req, m);
-    assert.equal(req.enable_thinking, true, m);
-  }
-});
-
-test('applyThinking: deepseek-v3 (not r1, not v3.1+) → no-op', () => {
-  const req = {};
-  p.applyThinking({ thinking: { type: 'enabled', budget_tokens: 1000 } }, req, 'deepseek-v3');
-  assert.deepEqual(req, {});
-});
+// ---------- no-op cases ----------
 
 test('applyThinking: unknown model → silently dropped', () => {
   const req = {};
-  p.applyThinking({ thinking: { type: 'enabled', budget_tokens: 5000 } }, req, 'unknown-model-xyz');
+  applyThinking({ thinking: { type: 'enabled', budget_tokens: 5000 } }, req, 'unknown-model-xyz');
   assert.deepEqual(req, {});
 });
 
+test('applyThinking: gpt-4o (non-reasoning) → dropped', () => {
+  const req = {};
+  applyThinking({ thinking: { type: 'enabled', budget_tokens: 1000 } }, req, 'gpt-4o');
+  assert.deepEqual(req, {});
+});
+
+// ---------- scaleUsage sanity ----------
+
 test('scaleUsage: reasoning_tokens passes through', () => {
-  const out = p.scaleUsage(
+  const out = scaleUsage(
     {
       input_tokens: 100,
       output_tokens: 50,
       reasoning_tokens: 30,
     },
-    'claude-3-5-sonnet',
+    'gpt-4o',
   );
   assert.equal(out.reasoning_tokens, 30);
+});
+
+// Sanity check that the catalog has the entries these tests assume.
+test('catalog sanity: gpt-5, gpt-4o, gemini-2.5-pro, deepseek-v4-flash are all findable', () => {
+  assert.ok(findModel('gpt-5'), 'gpt-5 must be in catalog');
+  assert.ok(findModel('gpt-4o'), 'gpt-4o must be in catalog');
+  assert.ok(findModel('gemini-2.5-pro'), 'gemini-2.5-pro must be in catalog');
+  assert.ok(findModel('deepseek-v4-flash'), 'deepseek-v4-flash must be in catalog');
 });

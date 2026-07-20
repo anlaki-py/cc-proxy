@@ -39,10 +39,12 @@ if (files.length === 0) {
 
 const nodeArgs = ['--test'];
 if (coverage) nodeArgs.push('--experimental-test-coverage');
-// Integration tests share port allocation globals and spawn child processes;
-// serialize them. Unit tests are independent and safe to parallelize.
-const concurrency = dirs.some((d) => d.includes('integration')) ? 1 : undefined;
-if (concurrency !== undefined) nodeArgs.push(`--test-concurrency=${concurrency}`);
+// Run unit tests one file at a time. The HTTP-server-based retry tests
+// are flaky when many files spin up loopback servers concurrently on
+// Windows; serializing is fast enough that it's a clear win. Integration
+// tests already serialize themselves via spawned child processes.
+const concurrency = 1;
+nodeArgs.push(`--test-concurrency=${concurrency}`);
 
 const result = spawnSync(process.execPath, [...nodeArgs, ...files], {
   stdio: 'inherit',

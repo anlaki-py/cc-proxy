@@ -1,10 +1,10 @@
 'use strict';
 
+require('../helpers/load-catalog.js');
+
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { loadProxy } = require('../helpers/load.js');
-
-const p = loadProxy([]);
+const { StreamBuilder } = require('../../src/stream.js');
 
 // Helpers to extract the JSON payloads from generated SSE chunks.
 function parseSSE(s) {
@@ -30,18 +30,18 @@ function parseSSE(s) {
 }
 
 test('StreamBuilder: start() emits message_start', () => {
-  const b = new p.StreamBuilder('claude-3-5-sonnet');
+  const b = new StreamBuilder('claude-haiku-4-5');
   const out = b.start(100);
   const events = parseSSE(out);
   assert.equal(events.length, 1);
   assert.equal(events[0].event, 'message_start');
   assert.equal(events[0].data.type, 'message_start');
-  assert.equal(events[0].data.message.model, 'claude-3-5-sonnet');
+  assert.equal(events[0].data.message.model, 'claude-haiku-4-5');
   assert.equal(events[0].data.message.usage.input_tokens, 100);
 });
 
 test('StreamBuilder: start() applies scaleUsage', () => {
-  const b = new p.StreamBuilder('gpt-4o');
+  const b = new StreamBuilder('gpt-4o');
   const out = b.start(128000);
   const events = parseSSE(out);
   const expected = Math.ceil(128000 * (200000 / 128000));
@@ -49,7 +49,7 @@ test('StreamBuilder: start() applies scaleUsage', () => {
 });
 
 test('StreamBuilder: text() opens a text block and emits deltas', () => {
-  const b = new p.StreamBuilder('gpt-4o');
+  const b = new StreamBuilder('gpt-4o');
   let out = b.start(0);
   out += b.text('hello');
   out += b.text(' world');
@@ -63,7 +63,7 @@ test('StreamBuilder: text() opens a text block and emits deltas', () => {
 });
 
 test('StreamBuilder: closeText() emits content_block_stop', () => {
-  const b = new p.StreamBuilder('gpt-4o');
+  const b = new StreamBuilder('gpt-4o');
   let out = b.text('hi');
   out += b.closeText();
   const events = parseSSE(out);
@@ -72,12 +72,12 @@ test('StreamBuilder: closeText() emits content_block_stop', () => {
 });
 
 test('StreamBuilder: empty text() emits nothing', () => {
-  const b = new p.StreamBuilder('gpt-4o');
+  const b = new StreamBuilder('gpt-4o');
   assert.equal(b.text(''), '');
 });
 
 test('StreamBuilder: openThinking opens a thinking block before text', () => {
-  const b = new p.StreamBuilder('gpt-4o');
+  const b = new StreamBuilder('gpt-4o');
   let out = b.openThinking('reasoning...');
   out += b.text('answer');
   out += b.finish({ completion_tokens: 10 });
@@ -90,7 +90,7 @@ test('StreamBuilder: openThinking opens a thinking block before text', () => {
 });
 
 test('StreamBuilder: openThinking then text auto-closes the thinking block', () => {
-  const b = new p.StreamBuilder('gpt-4o');
+  const b = new StreamBuilder('gpt-4o');
   let out = b.openThinking('t1');
   out += b.text('answer');
   const events = parseSSE(out);
@@ -106,7 +106,7 @@ test('StreamBuilder: openThinking then text auto-closes the thinking block', () 
 });
 
 test('StreamBuilder: openToolCall opens a tool_use block with id+name', () => {
-  const b = new p.StreamBuilder('gpt-4o');
+  const b = new StreamBuilder('gpt-4o');
   let out = b.openToolCall(0, 'call_abc', 'get_weather');
   const events = parseSSE(out);
   assert.equal(events[0].event, 'content_block_start');
@@ -116,7 +116,7 @@ test('StreamBuilder: openToolCall opens a tool_use block with id+name', () => {
 });
 
 test('StreamBuilder: appendToolArgs emits input_json_delta', () => {
-  const b = new p.StreamBuilder('gpt-4o');
+  const b = new StreamBuilder('gpt-4o');
   let out = b.openToolCall(0, 'call_abc', 'get_weather');
   out += b.appendToolArgs(0, '{"city":');
   out += b.appendToolArgs(0, '"Paris"}');
@@ -128,12 +128,12 @@ test('StreamBuilder: appendToolArgs emits input_json_delta', () => {
 });
 
 test('StreamBuilder: appendToolArgs for unknown index emits nothing', () => {
-  const b = new p.StreamBuilder('gpt-4o');
+  const b = new StreamBuilder('gpt-4o');
   assert.equal(b.appendToolArgs(99, 'x'), '');
 });
 
 test('StreamBuilder: multiple tool calls with distinct oai indices', () => {
-  const b = new p.StreamBuilder('gpt-4o');
+  const b = new StreamBuilder('gpt-4o');
   let out = b.openToolCall(0, 'call_a', 'tool_a');
   out += b.appendToolArgs(0, '{"a":1}');
   out += b.openToolCall(1, 'call_b', 'tool_b');
@@ -149,7 +149,7 @@ test('StreamBuilder: multiple tool calls with distinct oai indices', () => {
 });
 
 test('StreamBuilder: finish() closes everything and emits message_delta + message_stop', () => {
-  const b = new p.StreamBuilder('gpt-4o');
+  const b = new StreamBuilder('gpt-4o');
   let out = b.text('hi');
   out += b.finish({ completion_tokens: 5, output_tokens_details: { reasoning_tokens: 0 } });
   const events = parseSSE(out);
@@ -161,7 +161,7 @@ test('StreamBuilder: finish() closes everything and emits message_delta + messag
 });
 
 test('StreamBuilder: finish() with no usage uses outputTokens=0', () => {
-  const b = new p.StreamBuilder('claude-3-5-sonnet');
+  const b = new StreamBuilder('claude-haiku-4-5');
   let out = b.text('hi');
   out += b.finish();
   const events = parseSSE(out);
@@ -170,7 +170,7 @@ test('StreamBuilder: finish() with no usage uses outputTokens=0', () => {
 });
 
 test('StreamBuilder: finish() scaleUses usage', () => {
-  const b = new p.StreamBuilder('gpt-4o');
+  const b = new StreamBuilder('gpt-4o');
   let out = b.text('hi');
   out += b.finish({ completion_tokens: 1000, output_tokens_details: { reasoning_tokens: 0 } });
   const events = parseSSE(out);
@@ -180,7 +180,7 @@ test('StreamBuilder: finish() scaleUses usage', () => {
 });
 
 test('StreamBuilder: text after openToolCall does not crash', () => {
-  const b = new p.StreamBuilder('gpt-4o');
+  const b = new StreamBuilder('gpt-4o');
   let out = b.openToolCall(0, 'call_a', 'tool_a');
   // The text() function will try to openText(), which by design does not
   // close any existing tool_use block — the contract is that the model

@@ -1,11 +1,15 @@
 'use strict';
 
+// Retries in this suite use real wall-clock sleeps. The default 30s deadline
+// would make the "returns last retryable response after deadline" test block
+// for ~30s. Set a 1s deadline BEFORE loading src/retry.js — the constant is
+// captured at require time, so the order matters here.
+process.env.CCPROXY_RETRY_DEADLINE_MS = process.env.CCPROXY_RETRY_DEADLINE_MS || '1000';
+
 const { test } = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');
-const { loadProxy } = require('../helpers/load.js');
-
-const p = loadProxy([]);
+const { fetchWithRetry, isRetryableNetworkError, parseRetryAfter } = require('../../src/retry.js');
 
 // Spin up a tiny scripted HTTP server that returns a sequence of responses.
 // Each test sets up its own.
@@ -40,7 +44,7 @@ test('fetchWithRetry: succeeds on first try', async () => {
     },
   ]);
   try {
-    const r = await p.fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
+    const r = await fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
     assert.equal(r.status, 200);
     assert.equal(await r.json().then((d) => d.ok), 1);
   } finally {
@@ -60,7 +64,7 @@ test('fetchWithRetry: retries on 429 then succeeds', async () => {
     },
   ]);
   try {
-    const r = await p.fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
+    const r = await fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
     assert.equal(r.status, 200);
     assert.equal(callCount(), 2);
   } finally {
@@ -81,7 +85,7 @@ test('fetchWithRetry: retries on 502/503/504/529', async () => {
       },
     ]);
     try {
-      const r = await p.fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
+      const r = await fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
       assert.equal(r.status, 200, `status ${status} should be retried`);
       assert.equal(callCount(), 2, `status ${status} should be retried once`);
     } finally {
@@ -98,7 +102,7 @@ test('fetchWithRetry: does not retry on 400', async () => {
     },
   ]);
   try {
-    const r = await p.fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
+    const r = await fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
     assert.equal(r.status, 400);
     assert.equal(callCount(), 1);
   } finally {
@@ -119,7 +123,7 @@ test('fetchWithRetry: honors Retry-After numeric', async () => {
   ]);
   try {
     const start = Date.now();
-    const r = await p.fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
+    const r = await fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
     const elapsed = Date.now() - start;
     assert.equal(r.status, 200);
     assert.equal(callCount(), 2);
@@ -131,10 +135,10 @@ test('fetchWithRetry: honors Retry-After numeric', async () => {
 });
 
 test('fetchWithRetry: returns last retryable response after deadline', async () => {
-  // Set RETRY_TOTAL_DEADLINE_MS to something tiny by patching the
-  // module-loaded env. We can't easily do that on a vm-loaded module,
-  // so we just verify the function gives up after many failures and
-  // returns the last error response.
+  // The 1s deadline set at file load (top of retry.test.js) means this test
+  // gives up after ~1s of 503s rather than the 30s prod default. With 250ms
+  // base + exponential delay, we expect ~3-4 attempts before the deadline
+  // cuts it off.
   const { port, server, callCount } = await startScriptedServer(
     Array(20).fill((req, res) => {
       res.writeHead(503);
@@ -142,7 +146,7 @@ test('fetchWithRetry: returns last retryable response after deadline', async () 
     }),
   );
   try {
-    const r = await p.fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
+    const r = await fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
     assert.equal(r.status, 503);
     assert.ok(callCount() >= 2);
   } finally {
@@ -153,52 +157,52 @@ test('fetchWithRetry: returns last retryable response after deadline', async () 
 test('isRetryableNetworkError: AbortError is not retryable', () => {
   const e = new Error('aborted');
   e.name = 'AbortError';
-  assert.equal(p.isRetryableNetworkError(e), false);
+  assert.equal(isRetryableNetworkError(e), false);
 });
 
 test('isRetryableNetworkError: ECONNRESET is retryable', () => {
   const e = new Error('boom');
   e.cause = { code: 'ECONNRESET' };
-  assert.equal(p.isRetryableNetworkError(e), true);
+  assert.equal(isRetryableNetworkError(e), true);
 });
 
 test('isRetryableNetworkError: ETIMEDOUT is retryable', () => {
   const e = new Error('boom');
   e.cause = { code: 'ETIMEDOUT' };
-  assert.equal(p.isRetryableNetworkError(e), true);
+  assert.equal(isRetryableNetworkError(e), true);
 });
 
 test('isRetryableNetworkError: random code is not retryable', () => {
   const e = new Error('boom');
   e.cause = { code: 'ENOENT' };
-  assert.equal(p.isRetryableNetworkError(e), false);
+  assert.equal(isRetryableNetworkError(e), false);
 });
 
 test('isRetryableNetworkError: "fetch failed" message is retryable', () => {
   const e = new Error('fetch failed');
-  assert.equal(p.isRetryableNetworkError(e), true);
+  assert.equal(isRetryableNetworkError(e), true);
 });
 
 test('parseRetryAfter: numeric seconds → ms', () => {
-  assert.equal(p.parseRetryAfter('2'), 2000);
+  assert.equal(parseRetryAfter('2'), 2000);
 });
 
 test('parseRetryAfter: numeric capped at RETRY_MAX_MS (4000)', () => {
-  assert.equal(p.parseRetryAfter('100'), 4000);
+  assert.equal(parseRetryAfter('100'), 4000);
 });
 
 test('parseRetryAfter: HTTP-date in the past → 0', () => {
   const past = new Date(Date.now() - 10000).toUTCString();
-  assert.equal(p.parseRetryAfter(past), 0);
+  assert.equal(parseRetryAfter(past), 0);
 });
 
 test('parseRetryAfter: HTTP-date in the future → ms until that time', () => {
   const future = new Date(Date.now() + 5000).toUTCString();
-  const v = p.parseRetryAfter(future);
+  const v = parseRetryAfter(future);
   assert.ok(v >= 4000 && v <= 5000);
 });
 
 test('parseRetryAfter: null/garbage → null', () => {
-  assert.equal(p.parseRetryAfter(null), null);
-  assert.equal(p.parseRetryAfter('not a date or number'), null);
+  assert.equal(parseRetryAfter(null), null);
+  assert.equal(parseRetryAfter('not a date or number'), null);
 });

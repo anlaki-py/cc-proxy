@@ -1,25 +1,27 @@
 'use strict';
 
+require('../helpers/load-catalog.js');
+
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { loadProxy } = require('../helpers/load.js');
-
-const p = loadProxy([]);
+const { anthropicToOpenAIMessages } = require('../../src/request.js');
+const { resolveImageSource } = require('../../src/images.js');
+const { estimateInputTokens } = require('../../src/models.js');
 
 test('anthropicToOpenAIMessages: system string', async () => {
-  const out = await p.anthropicToOpenAIMessages({ system: 'you are helpful' }, 'gpt-4o');
+  const out = await anthropicToOpenAIMessages({ system: 'you are helpful' }, 'gpt-4o');
   assert.equal(out.length, 1);
   assert.equal(out[0].role, 'system');
   assert.equal(out[0].content, 'you are helpful');
 });
 
 test('anthropicToOpenAIMessages: system string on o-series → developer', async () => {
-  const out = await p.anthropicToOpenAIMessages({ system: 'be terse' }, 'o1');
+  const out = await anthropicToOpenAIMessages({ system: 'be terse' }, 'o1');
   assert.equal(out[0].role, 'developer');
 });
 
 test('anthropicToOpenAIMessages: system blocks concatenated', async () => {
-  const out = await p.anthropicToOpenAIMessages(
+  const out = await anthropicToOpenAIMessages(
     {
       system: [
         { type: 'text', text: 'line 1' },
@@ -33,7 +35,7 @@ test('anthropicToOpenAIMessages: system blocks concatenated', async () => {
 });
 
 test('anthropicToOpenAIMessages: string-content user message', async () => {
-  const out = await p.anthropicToOpenAIMessages(
+  const out = await anthropicToOpenAIMessages(
     { messages: [{ role: 'user', content: 'hi' }] },
     'gpt-4o',
   );
@@ -41,7 +43,7 @@ test('anthropicToOpenAIMessages: string-content user message', async () => {
 });
 
 test('anthropicToOpenAIMessages: assistant text + tool_use', async () => {
-  const out = await p.anthropicToOpenAIMessages(
+  const out = await anthropicToOpenAIMessages(
     {
       messages: [
         {
@@ -65,7 +67,7 @@ test('anthropicToOpenAIMessages: assistant text + tool_use', async () => {
 });
 
 test('anthropicToOpenAIMessages: tool_result → tool role message', async () => {
-  const out = await p.anthropicToOpenAIMessages(
+  const out = await anthropicToOpenAIMessages(
     {
       messages: [
         {
@@ -83,7 +85,7 @@ test('anthropicToOpenAIMessages: tool_result → tool role message', async () =>
 });
 
 test('anthropicToOpenAIMessages: tool_result is_error → prefixed with [tool error]', async () => {
-  const out = await p.anthropicToOpenAIMessages(
+  const out = await anthropicToOpenAIMessages(
     {
       messages: [
         {
@@ -98,7 +100,7 @@ test('anthropicToOpenAIMessages: tool_result is_error → prefixed with [tool er
 });
 
 test('anthropicToOpenAIMessages: thinking blocks are dropped', async () => {
-  const out = await p.anthropicToOpenAIMessages(
+  const out = await anthropicToOpenAIMessages(
     {
       messages: [
         {
@@ -116,7 +118,7 @@ test('anthropicToOpenAIMessages: thinking blocks are dropped', async () => {
 });
 
 test('anthropicToOpenAIMessages: redacted_thinking blocks are dropped', async () => {
-  const out = await p.anthropicToOpenAIMessages(
+  const out = await anthropicToOpenAIMessages(
     {
       messages: [
         {
@@ -134,7 +136,7 @@ test('anthropicToOpenAIMessages: redacted_thinking blocks are dropped', async ()
 });
 
 test('anthropicToOpenAIMessages: image base64 passthrough', async () => {
-  const out = await p.anthropicToOpenAIMessages(
+  const out = await anthropicToOpenAIMessages(
     {
       messages: [
         {
@@ -156,7 +158,7 @@ test('anthropicToOpenAIMessages: image base64 passthrough', async () => {
 });
 
 test('anthropicToOpenAIMessages: image url passthrough (no image-fetch)', async () => {
-  const out = await p.anthropicToOpenAIMessages(
+  const out = await anthropicToOpenAIMessages(
     {
       messages: [
         {
@@ -177,7 +179,7 @@ test('anthropicToOpenAIMessages: image url passthrough (no image-fetch)', async 
 
 test('anthropicToOpenAIMessages: image file source type throws', async () => {
   await assert.rejects(async () => {
-    await p.anthropicToOpenAIMessages(
+    await anthropicToOpenAIMessages(
       {
         messages: [
           {
@@ -193,13 +195,13 @@ test('anthropicToOpenAIMessages: image file source type throws', async () => {
 
 test('resolveImageSource: unknown source type throws', async () => {
   await assert.rejects(async () => {
-    await p.resolveImageSource({ type: 'mystery' });
+    await resolveImageSource({ type: 'mystery' });
   }, /unknown source type/);
 });
 
 test('resolveImageSource: base64 missing media_type throws', async () => {
   await assert.rejects(async () => {
-    await p.resolveImageSource({ type: 'base64', data: 'x' });
+    await resolveImageSource({ type: 'base64', data: 'x' });
   }, /missing media_type/);
 });
 
@@ -208,5 +210,5 @@ test('estimateInputTokens: 4-chars-per-token heuristic over the JSON of messages
   // and brackets. For a 4-char body, total is roughly 4 + role/content keys overhead.
   const req = { messages: [{ role: 'user', content: 'a' }] };
   const expected = Math.ceil(JSON.stringify(req.messages).length / 4);
-  assert.equal(p.estimateInputTokens(req), expected);
+  assert.equal(estimateInputTokens(req), expected);
 });

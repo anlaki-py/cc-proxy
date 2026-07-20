@@ -2,3 +2,4 @@
 node_modules/
 coverage/
 CHANGELOG.md
+lib/proxy.js
