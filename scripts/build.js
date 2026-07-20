@@ -35,6 +35,7 @@ const ORDER = [
   'request',
   'stream',
   'cli',
+  'profiles',
   'server',
   'main',
 ];

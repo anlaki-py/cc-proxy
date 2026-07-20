@@ -33,6 +33,10 @@ Options:
       --max-image-bytes <n>  Max bytes per image when --image-fetch is on (default 20M)
   -h, --help                 Show this help
 
+When -b and -k are both omitted in a terminal, cc-proxy walks you through
+creating or selecting a saved profile (~/.config/cc-proxy/profiles.json)
+with arrow-key navigation.
+
 Env vars: OPENAI_BASE_URL, OPENAI_API_KEY, PORT, MODEL_OVERRIDE,
           IMAGE_FETCH=1, MAX_IMAGE_BYTES, LOG=1
 `);

@@ -9,14 +9,37 @@
 const { parseArgs } = require('./cli.js');
 const { startServer } = require('./server.js');
 const { loadCatalog } = require('./catalog.js');
+const { resolveFromProfiles } = require('./profiles.js');
 
 async function boot(argv) {
   const args = parseArgs(argv);
-  const BASE = (args.base || process.env.OPENAI_BASE_URL || 'http://localhost:11434/v1').replace(
-    /\/$/,
-    '',
-  );
-  const KEY = args.key || process.env.OPENAI_API_KEY || '';
+
+  // When neither -b nor -k is on the command line, offer saved profiles
+  // (interactive TTY). Non-TTY falls through to env/defaults as before.
+  let profileBase;
+  let profileKey;
+  let profileName;
+  if (args.base === undefined && args.key === undefined) {
+    const picked = await resolveFromProfiles();
+    if (picked) {
+      profileBase = picked.base;
+      profileKey = picked.key;
+      profileName = picked.name;
+    }
+  }
+
+  const BASE = (
+    args.base ||
+    profileBase ||
+    process.env.OPENAI_BASE_URL ||
+    'http://localhost:11434/v1'
+  ).replace(/\/$/, '');
+  const KEY =
+    args.key !== undefined
+      ? args.key
+      : profileKey !== undefined
+        ? profileKey
+        : process.env.OPENAI_API_KEY || '';
   const PORT = parseInt(args.port || process.env.PORT || '8082', 10);
   const MODEL_OVERRIDE = args.model || process.env.MODEL_OVERRIDE || '';
   const IMAGE_FETCH = !!args.imageFetch || process.env.IMAGE_FETCH === '1';
@@ -41,14 +64,26 @@ async function boot(argv) {
 
   server.listen(PORT, () => {
     console.log(`Anthropic <-> OpenAI proxy listening on http://localhost:${PORT}`);
+    if (profileName) console.log(`  profile:  ${profileName}`);
     console.log(`  upstream: ${BASE}`);
     console.log(`  auth:     ${KEY ? 'bearer ***' + KEY.slice(-4) : 'none'}`);
     if (MODEL_OVERRIDE) console.log(`  model:    ${MODEL_OVERRIDE} (override)`);
     console.log('');
     console.log('To use with Claude Code:');
     console.log('');
+    console.log('  bash / zsh:');
     console.log(
-      `ANTHROPIC_BASE_URL=http://localhost:${PORT} ANTHROPIC_AUTH_TOKEN=any-value claude`,
+      `    ANTHROPIC_BASE_URL=http://localhost:${PORT} ANTHROPIC_AUTH_TOKEN=any-value claude`,
+    );
+    console.log('');
+    console.log('  PowerShell:');
+    console.log(
+      `    $env:ANTHROPIC_BASE_URL="http://localhost:${PORT}"; $env:ANTHROPIC_AUTH_TOKEN="any-value"; claude`,
+    );
+    console.log('');
+    console.log('  cmd:');
+    console.log(
+      `    set ANTHROPIC_BASE_URL=http://localhost:${PORT}&& set ANTHROPIC_AUTH_TOKEN=any-value&& claude`,
     );
     console.log('');
   });

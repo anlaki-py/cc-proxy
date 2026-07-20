@@ -21,6 +21,10 @@ The proxy's security-relevant surface is, in summary:
 - **API key in process memory.** The `--key` / `OPENAI_API_KEY` value is
   held in process memory for the lifetime of the running process and is
   sent as a Bearer token on every upstream request.
+- **API keys on disk for saved profiles.** When you create a profile via the
+  interactive prompt (running without `-b`/`-k`), the key is stored in
+  plain text under `~/.config/cc-proxy/profiles.json`. Prefer `-b`/`-k` or env
+  vars if you do not want credentials written to disk.
 - **HTTP server with no built-in authentication.** cc-proxy binds a
   plain HTTP server to a local port. It is intended to be run locally
   or in a trusted network context, not exposed directly to the public

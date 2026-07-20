@@ -18,6 +18,7 @@ npm run format     # checks Prettier formatting (excludes lib/proxy.js)
 `src/` holds the proxy source, split into one module per domain:
 
 - `cli.js` — argv parsing and `--help`
+- `profiles.js` — saved upstream profiles (`~/.config/cc-proxy/profiles.json`) when `-b`/`-k` are omitted
 - `request.js` — Anthropic→OpenAI message/tool/choice translation
 - `stream.js` — `StreamBuilder` (frozen API) and SSE parsing
 - `images.js` — image source resolution (base64 / url / file)
