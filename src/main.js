@@ -83,7 +83,7 @@ async function boot(argv) {
     console.log('');
     console.log('  cmd:');
     console.log(
-      `    set ANTHROPIC_BASE_URL=http://localhost:${PORT}&& set ANTHROPIC_AUTH_TOKEN=any-value&& claude`,
+      `    set ANTHROPIC_BASE_URL=http://localhost:${PORT} && set ANTHROPIC_AUTH_TOKEN=any-value && claude`,
     );
     console.log('');
   });
