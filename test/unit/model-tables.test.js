@@ -65,8 +65,8 @@ test('scaleUsage: k===1 returns input unchanged', () => {
 test('scaleUsage: scales input/output tokens', () => {
   const u = { input_tokens: 100, output_tokens: 50 };
   const out = p.scaleUsage(u, 'gpt-4o');
-  assert.equal(out.input_tokens, Math.ceil(100 * 200000 / 128000));
-  assert.equal(out.output_tokens, Math.ceil(50 * 200000 / 128000));
+  assert.equal(out.input_tokens, Math.ceil((100 * 200000) / 128000));
+  assert.equal(out.output_tokens, Math.ceil((50 * 200000) / 128000));
 });
 
 test('scaleUsage: null passes through', () => {

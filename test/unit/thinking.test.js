@@ -113,8 +113,13 @@ test('applyThinking: unknown model → silently dropped', () => {
 });
 
 test('scaleUsage: reasoning_tokens passes through', () => {
-  const out = p.scaleUsage({
-    input_tokens: 100, output_tokens: 50, reasoning_tokens: 30,
-  }, 'claude-3-5-sonnet');
+  const out = p.scaleUsage(
+    {
+      input_tokens: 100,
+      output_tokens: 50,
+      reasoning_tokens: 30,
+    },
+    'claude-3-5-sonnet',
+  );
   assert.equal(out.reasoning_tokens, 30);
 });

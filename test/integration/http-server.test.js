@@ -22,13 +22,17 @@ const PROXY_DIR = path.join(__dirname, '..', '..');
 let nextPort = 19000 + Math.floor(Math.random() * 1000);
 const allocPort = () => nextPort++;
 
-function startProxy(port, upstreamBase, key) {
+function startProxy(port, upstreamBase, key, extraEnv = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [PROXY_BIN, '--port', String(port), '--base', upstreamBase, '--key', key], {
-      cwd: PROXY_DIR,
-      env: { ...process.env, LOG: '1' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const child = spawn(
+      process.execPath,
+      [PROXY_BIN, '--port', String(port), '--base', upstreamBase, '--key', key],
+      {
+        cwd: PROXY_DIR,
+        env: { ...process.env, LOG: '1', ...extraEnv },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
     let buf = '';
     const onData = (chunk) => {
       buf += chunk.toString();
@@ -73,10 +77,13 @@ function makeUpstream() {
   return {
     server,
     addHandler: (fn) => handlers.push(fn),
-    listen: () => new Promise((resolve) => server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      resolve({ port, base: `http://127.0.0.1:${port}/v1` });
-    })),
+    listen: () =>
+      new Promise((resolve) =>
+        server.listen(0, '127.0.0.1', () => {
+          const { port } = server.address();
+          resolve({ port, base: `http://127.0.0.1:${port}/v1` });
+        }),
+      ),
     close: () => new Promise((r) => server.close(r)),
   };
 }
@@ -84,17 +91,26 @@ function makeUpstream() {
 function fetch_(url, opts = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
-    const req = http.request({
-      hostname: u.hostname,
-      port: u.port,
-      path: u.pathname + u.search,
-      method: opts.method || 'GET',
-      headers: opts.headers || {},
-    }, (res) => {
-      const chunk = [];
-      res.on('data', (c) => chunk.push(c));
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunk).toString() }));
-    });
+    const req = http.request(
+      {
+        hostname: u.hostname,
+        port: u.port,
+        path: u.pathname + u.search,
+        method: opts.method || 'GET',
+        headers: opts.headers || {},
+      },
+      (res) => {
+        const chunk = [];
+        res.on('data', (c) => chunk.push(c));
+        res.on('end', () =>
+          resolve({
+            status: res.statusCode,
+            headers: res.headers,
+            body: Buffer.concat(chunk).toString(),
+          }),
+        );
+      },
+    );
     req.on('error', reject);
     if (opts.body) req.write(opts.body);
     req.end();
@@ -149,17 +165,24 @@ test('POST /v1/messages?beta=true: non-streaming round-trip', async (t) => {
     assert.equal(oaiReq.messages[0].role, 'user');
     assert.equal(oaiReq.messages[0].content, 'hello');
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({
-      id: 'cmpl-1', model: 'gpt-4o',
-      choices: [{ index: 0, message: { role: 'assistant', content: 'hi back' }, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 5, completion_tokens: 2 },
-    }));
+    res.end(
+      JSON.stringify({
+        id: 'cmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          { index: 0, message: { role: 'assistant', content: 'hi back' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 5, completion_tokens: 2 },
+      }),
+    );
   });
   const { base } = await up.listen();
   const proxy = await startProxy(allocPort(), base, 'test-key');
   t.after(() => Promise.all([stopProxy(proxy), up.close()]));
   const anth = {
-    model: 'gpt-4o', max_tokens: 100, messages: [{ role: 'user', content: 'hello' }],
+    model: 'gpt-4o',
+    max_tokens: 100,
+    messages: [{ role: 'user', content: 'hello' }],
   };
   const r = await fetch_(`http://127.0.0.1:${proxy.port}/v1/messages?beta=true`, {
     method: 'POST',
@@ -182,7 +205,9 @@ test('POST /v1/messages: streaming SSE round-trip', async (t) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.write('data: {"choices":[{"delta":{"content":"hello"}}]}\n\n');
     res.write('data: {"choices":[{"delta":{"content":" world"}}]}\n\n');
-    res.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2}}\n\n');
+    res.write(
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2}}\n\n',
+    );
     res.write('data: [DONE]\n\n');
     res.end();
   });
@@ -190,7 +215,9 @@ test('POST /v1/messages: streaming SSE round-trip', async (t) => {
   const proxy = await startProxy(allocPort(), base, 'test-key');
   t.after(() => Promise.all([stopProxy(proxy), up.close()]));
   const anth = {
-    model: 'gpt-4o', max_tokens: 100, stream: true,
+    model: 'gpt-4o',
+    max_tokens: 100,
+    stream: true,
     messages: [{ role: 'user', content: 'hi' }],
   };
   const r = await fetch_(`http://127.0.0.1:${proxy.port}/v1/messages`, {
@@ -217,7 +244,8 @@ test('POST /v1/messages: 400 on missing model', async (t) => {
   const proxy = await startProxy(allocPort(), base, '');
   t.after(() => Promise.all([stopProxy(proxy), up.close()]));
   const r = await fetch_(`http://127.0.0.1:${proxy.port}/v1/messages`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ max_tokens: 100, messages: [{ role: 'user', content: 'hi' }] }),
   });
   assert.equal(r.status, 400);
@@ -233,7 +261,8 @@ test('POST /v1/messages: 400 on missing max_tokens', async (t) => {
   const proxy = await startProxy(allocPort(), base, '');
   t.after(() => Promise.all([stopProxy(proxy), up.close()]));
   const r = await fetch_(`http://127.0.0.1:${proxy.port}/v1/messages`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }] }),
   });
   assert.equal(r.status, 400);
@@ -247,7 +276,8 @@ test('POST /v1/messages: 400 on missing messages', async (t) => {
   const proxy = await startProxy(allocPort(), base, '');
   t.after(() => Promise.all([stopProxy(proxy), up.close()]));
   const r = await fetch_(`http://127.0.0.1:${proxy.port}/v1/messages`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ model: 'gpt-4o', max_tokens: 100 }),
   });
   assert.equal(r.status, 400);
@@ -261,7 +291,8 @@ test('POST /v1/messages: 400 on invalid JSON', async (t) => {
   const proxy = await startProxy(allocPort(), base, '');
   t.after(() => Promise.all([stopProxy(proxy), up.close()]));
   const r = await fetch_(`http://127.0.0.1:${proxy.port}/v1/messages`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: 'not json',
   });
   assert.equal(r.status, 400);
@@ -282,14 +313,19 @@ test('POST /v1/messages: 404 on unknown path', async (t) => {
 
 test('POST /v1/messages: 502 when upstream is unreachable', async (t) => {
   // Use a real-but-unreachable upstream on a port we don't bind.
-  const proxy = await startProxy(allocPort(), 'http://127.0.0.1:1/v1', '');
+  // Shorten the retry deadline so this test fails fast instead of waiting 30s.
+  const proxy = await startProxy(allocPort(), 'http://127.0.0.1:1/v1', '', {
+    CCPROXY_RETRY_DEADLINE_MS: '1000',
+  });
   t.after(() => stopProxy(proxy));
   const anth = {
-    model: 'gpt-4o', max_tokens: 100,
+    model: 'gpt-4o',
+    max_tokens: 100,
     messages: [{ role: 'user', content: 'hi' }],
   };
   const r = await fetch_(`http://127.0.0.1:${proxy.port}/v1/messages`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(anth),
   });
   assert.equal(r.status, 502);

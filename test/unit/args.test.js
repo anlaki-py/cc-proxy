@@ -8,12 +8,17 @@ const p = loadProxy(['--port', '0']);
 
 test('parseArgs: long-form flags', () => {
   const r = p.parseArgs([
-    '--base', 'http://x.com/v1',
-    '--key', 'sk-123',
-    '--port', '9001',
-    '--model', 'gpt-4o',
+    '--base',
+    'http://x.com/v1',
+    '--key',
+    'sk-123',
+    '--port',
+    '9001',
+    '--model',
+    'gpt-4o',
     '--image-fetch',
-    '--max-image-bytes', '1000',
+    '--max-image-bytes',
+    '1000',
   ]);
   assert.equal(r.base, 'http://x.com/v1');
   assert.equal(r.key, 'sk-123');

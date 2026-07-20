@@ -19,28 +19,42 @@ test('anthropicToOpenAIMessages: system string on o-series → developer', async
 });
 
 test('anthropicToOpenAIMessages: system blocks concatenated', async () => {
-  const out = await p.anthropicToOpenAIMessages({
-    system: [{ type: 'text', text: 'line 1' }, { type: 'text', text: 'line 2' }],
-  }, 'gpt-4o');
+  const out = await p.anthropicToOpenAIMessages(
+    {
+      system: [
+        { type: 'text', text: 'line 1' },
+        { type: 'text', text: 'line 2' },
+      ],
+    },
+    'gpt-4o',
+  );
   assert.equal(out[0].role, 'system');
   assert.equal(out[0].content, 'line 1\n\nline 2');
 });
 
 test('anthropicToOpenAIMessages: string-content user message', async () => {
-  const out = await p.anthropicToOpenAIMessages({ messages: [{ role: 'user', content: 'hi' }] }, 'gpt-4o');
+  const out = await p.anthropicToOpenAIMessages(
+    { messages: [{ role: 'user', content: 'hi' }] },
+    'gpt-4o',
+  );
   assert.deepEqual(out, [{ role: 'user', content: 'hi' }]);
 });
 
 test('anthropicToOpenAIMessages: assistant text + tool_use', async () => {
-  const out = await p.anthropicToOpenAIMessages({
-    messages: [{
-      role: 'assistant',
-      content: [
-        { type: 'text', text: 'calling tool' },
-        { type: 'tool_use', id: 'tc1', name: 'get_weather', input: { city: 'Paris' } },
+  const out = await p.anthropicToOpenAIMessages(
+    {
+      messages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'calling tool' },
+            { type: 'tool_use', id: 'tc1', name: 'get_weather', input: { city: 'Paris' } },
+          ],
+        },
       ],
-    }],
-  }, 'gpt-4o');
+    },
+    'gpt-4o',
+  );
   assert.equal(out.length, 1);
   assert.equal(out[0].role, 'assistant');
   assert.equal(out[0].content, 'calling tool');
@@ -51,14 +65,17 @@ test('anthropicToOpenAIMessages: assistant text + tool_use', async () => {
 });
 
 test('anthropicToOpenAIMessages: tool_result → tool role message', async () => {
-  const out = await p.anthropicToOpenAIMessages({
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'tool_result', tool_use_id: 'tc1', content: 'sunny, 22C' },
+  const out = await p.anthropicToOpenAIMessages(
+    {
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'tc1', content: 'sunny, 22C' }],
+        },
       ],
-    }],
-  }, 'gpt-4o');
+    },
+    'gpt-4o',
+  );
   assert.equal(out.length, 1);
   assert.equal(out[0].role, 'tool');
   assert.equal(out[0].tool_call_id, 'tc1');
@@ -66,77 +83,111 @@ test('anthropicToOpenAIMessages: tool_result → tool role message', async () =>
 });
 
 test('anthropicToOpenAIMessages: tool_result is_error → prefixed with [tool error]', async () => {
-  const out = await p.anthropicToOpenAIMessages({
-    messages: [{
-      role: 'user',
-      content: [{ type: 'tool_result', tool_use_id: 'tc1', content: 'nope', is_error: true }],
-    }],
-  }, 'gpt-4o');
+  const out = await p.anthropicToOpenAIMessages(
+    {
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'tc1', content: 'nope', is_error: true }],
+        },
+      ],
+    },
+    'gpt-4o',
+  );
   assert.equal(out[0].content, '[tool error] nope');
 });
 
 test('anthropicToOpenAIMessages: thinking blocks are dropped', async () => {
-  const out = await p.anthropicToOpenAIMessages({
-    messages: [{
-      role: 'assistant',
-      content: [
-        { type: 'thinking', thinking: 'private' },
-        { type: 'text', text: 'visible' },
+  const out = await p.anthropicToOpenAIMessages(
+    {
+      messages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'thinking', thinking: 'private' },
+            { type: 'text', text: 'visible' },
+          ],
+        },
       ],
-    }],
-  }, 'gpt-4o');
+    },
+    'gpt-4o',
+  );
   assert.equal(out[0].content, 'visible');
 });
 
 test('anthropicToOpenAIMessages: redacted_thinking blocks are dropped', async () => {
-  const out = await p.anthropicToOpenAIMessages({
-    messages: [{
-      role: 'assistant',
-      content: [
-        { type: 'redacted_thinking', data: 'xxxx' },
-        { type: 'text', text: 'ok' },
+  const out = await p.anthropicToOpenAIMessages(
+    {
+      messages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'redacted_thinking', data: 'xxxx' },
+            { type: 'text', text: 'ok' },
+          ],
+        },
       ],
-    }],
-  }, 'gpt-4o');
+    },
+    'gpt-4o',
+  );
   assert.equal(out[0].content, 'ok');
 });
 
 test('anthropicToOpenAIMessages: image base64 passthrough', async () => {
-  const out = await p.anthropicToOpenAIMessages({
-    messages: [{
-      role: 'user',
-      content: [{
-        type: 'image',
-        source: { type: 'base64', media_type: 'image/png', data: 'AAAA' },
-      }],
-    }],
-  }, 'gpt-4o');
+  const out = await p.anthropicToOpenAIMessages(
+    {
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: 'image/png', data: 'AAAA' },
+            },
+          ],
+        },
+      ],
+    },
+    'gpt-4o',
+  );
   assert.equal(out[0].role, 'user');
   assert.equal(out[0].content[0].type, 'image_url');
   assert.equal(out[0].content[0].image_url.url, 'data:image/png;base64,AAAA');
 });
 
 test('anthropicToOpenAIMessages: image url passthrough (no image-fetch)', async () => {
-  const out = await p.anthropicToOpenAIMessages({
-    messages: [{
-      role: 'user',
-      content: [{
-        type: 'image',
-        source: { type: 'url', url: 'https://example.com/x.png' },
-      }],
-    }],
-  }, 'gpt-4o');
+  const out = await p.anthropicToOpenAIMessages(
+    {
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: { type: 'url', url: 'https://example.com/x.png' },
+            },
+          ],
+        },
+      ],
+    },
+    'gpt-4o',
+  );
   assert.equal(out[0].content[0].image_url.url, 'https://example.com/x.png');
 });
 
 test('anthropicToOpenAIMessages: image file source type throws', async () => {
   await assert.rejects(async () => {
-    await p.anthropicToOpenAIMessages({
-      messages: [{
-        role: 'user',
-        content: [{ type: 'image', source: { type: 'file', file_id: 'f_1' } }],
-      }],
-    }, 'gpt-4o');
+    await p.anthropicToOpenAIMessages(
+      {
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'image', source: { type: 'file', file_id: 'f_1' } }],
+          },
+        ],
+      },
+      'gpt-4o',
+    );
   }, /file source type/);
 });
 

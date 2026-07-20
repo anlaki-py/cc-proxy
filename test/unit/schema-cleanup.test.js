@@ -27,7 +27,12 @@ test('strips format: "uri" at any depth', () => {
 });
 
 test('removes schema-level strict: true', () => {
-  const s = clean({ type: 'object', strict: true, properties: { a: { type: 'string' } }, required: ['a'] });
+  const s = clean({
+    type: 'object',
+    strict: true,
+    properties: { a: { type: 'string' } },
+    required: ['a'],
+  });
   assert.equal(s.strict, undefined);
 });
 
@@ -152,7 +157,10 @@ test('recurses into array items', () => {
         type: 'array',
         items: {
           type: 'object',
-          properties: { id: { type: 'string' }, note: { type: 'string', description: 'Optional.' } },
+          properties: {
+            id: { type: 'string' },
+            note: { type: 'string', description: 'Optional.' },
+          },
           required: ['id', 'note'],
         },
       },

@@ -19,10 +19,10 @@ test('mapToolChoice: none', () => {
 });
 
 test('mapToolChoice: tool with name', () => {
-  assert.deepEqual(
-    p.mapToolChoice({ type: 'tool', name: 'foo' }),
-    { type: 'function', function: { name: 'foo' } }
-  );
+  assert.deepEqual(p.mapToolChoice({ type: 'tool', name: 'foo' }), {
+    type: 'function',
+    function: { name: 'foo' },
+  });
 });
 
 test('mapToolChoice: undefined input returns undefined', () => {
@@ -56,11 +56,17 @@ test('anthropicToOpenAITools: undefined returns undefined', () => {
 });
 
 test('anthropicToOpenAITools: maps name, description, parameters; strict: false implicit', () => {
-  const out = p.anthropicToOpenAITools([{
-    name: 'get_weather',
-    description: 'Get the weather',
-    input_schema: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
-  }]);
+  const out = p.anthropicToOpenAITools([
+    {
+      name: 'get_weather',
+      description: 'Get the weather',
+      input_schema: {
+        type: 'object',
+        properties: { city: { type: 'string' } },
+        required: ['city'],
+      },
+    },
+  ]);
   assert.equal(out.length, 1);
   assert.equal(out[0].type, 'function');
   assert.equal(out[0].function.name, 'get_weather');
@@ -73,19 +79,21 @@ test('anthropicToOpenAITools: maps name, description, parameters; strict: false 
 });
 
 test('anthropicToOpenAITools: cleans the schema', () => {
-  const out = p.anthropicToOpenAITools([{
-    name: 'f',
-    description: 'd',
-    input_schema: {
-      type: 'object',
-      strict: true,
-      properties: {
-        x: { type: 'string', format: 'uri', description: 'A real url.' },
-        y: { type: 'string', description: 'Optional.' },
+  const out = p.anthropicToOpenAITools([
+    {
+      name: 'f',
+      description: 'd',
+      input_schema: {
+        type: 'object',
+        strict: true,
+        properties: {
+          x: { type: 'string', format: 'uri', description: 'A real url.' },
+          y: { type: 'string', description: 'Optional.' },
+        },
+        required: ['x', 'y'],
       },
-      required: ['x', 'y'],
     },
-  }]);
+  ]);
   assert.equal(out[0].function.parameters.strict, undefined);
   assert.equal(out[0].function.parameters.properties.x.format, undefined);
   assert.deepEqual(out[0].function.parameters.required, ['x']);

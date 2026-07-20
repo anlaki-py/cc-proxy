@@ -104,15 +104,15 @@ To make the env vars stick across shells, put the `export` (Linux/macOS) or
 
 ## Flags
 
-| Flag                   | Env var             | Default                          |
-|------------------------|---------------------|----------------------------------|
-| `-b, --base`           | `OPENAI_BASE_URL`   | `http://localhost:11434/v1`      |
-| `-k, --key`            | `OPENAI_API_KEY`    | _empty_                          |
-| `-p, --port`           | `PORT`              | `8082`                           |
-| `-m, --model`          | `MODEL_OVERRIDE`    | _empty_                          |
-| `--image-fetch`        | `IMAGE_FETCH=1`     | _off_ — fetch+base64 URL images  |
-| `--max-image-bytes <n>`| `MAX_IMAGE_BYTES`   | `20971520` (20 MB)               |
-|                        | `LOG=1`             | _off_ — log every request        |
+| Flag                    | Env var           | Default                         |
+| ----------------------- | ----------------- | ------------------------------- |
+| `-b, --base`            | `OPENAI_BASE_URL` | `http://localhost:11434/v1`     |
+| `-k, --key`             | `OPENAI_API_KEY`  | _empty_                         |
+| `-p, --port`            | `PORT`            | `8082`                          |
+| `-m, --model`           | `MODEL_OVERRIDE`  | _empty_                         |
+| `--image-fetch`         | `IMAGE_FETCH=1`   | _off_ — fetch+base64 URL images |
+| `--max-image-bytes <n>` | `MAX_IMAGE_BYTES` | `20971520` (20 MB)              |
+|                         | `LOG=1`           | _off_ — log every request       |
 
 ## What it does
 

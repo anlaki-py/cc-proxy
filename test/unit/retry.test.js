@@ -33,14 +33,16 @@ function closeServer(server) {
 }
 
 test('fetchWithRetry: succeeds on first try', async () => {
-  const { port, server } = await startScriptedServer([(req, res) => {
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end('{"ok":1}');
-  }]);
+  const { port, server } = await startScriptedServer([
+    (req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"ok":1}');
+    },
+  ]);
   try {
     const r = await p.fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
     assert.equal(r.status, 200);
-    assert.equal(await r.json().then(d => d.ok), 1);
+    assert.equal(await r.json().then((d) => d.ok), 1);
   } finally {
     await closeServer(server);
   }
@@ -48,8 +50,14 @@ test('fetchWithRetry: succeeds on first try', async () => {
 
 test('fetchWithRetry: retries on 429 then succeeds', async () => {
   const { port, server, callCount } = await startScriptedServer([
-    (req, res) => { res.writeHead(429); res.end(); },
-    (req, res) => { res.writeHead(200); res.end('{"ok":1}'); },
+    (req, res) => {
+      res.writeHead(429);
+      res.end();
+    },
+    (req, res) => {
+      res.writeHead(200);
+      res.end('{"ok":1}');
+    },
   ]);
   try {
     const r = await p.fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
@@ -63,8 +71,14 @@ test('fetchWithRetry: retries on 429 then succeeds', async () => {
 test('fetchWithRetry: retries on 502/503/504/529', async () => {
   for (const status of [502, 503, 504, 529]) {
     const { port, server, callCount } = await startScriptedServer([
-      (req, res) => { res.writeHead(status); res.end(); },
-      (req, res) => { res.writeHead(200); res.end('{}'); },
+      (req, res) => {
+        res.writeHead(status);
+        res.end();
+      },
+      (req, res) => {
+        res.writeHead(200);
+        res.end('{}');
+      },
     ]);
     try {
       const r = await p.fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
@@ -78,7 +92,10 @@ test('fetchWithRetry: retries on 502/503/504/529', async () => {
 
 test('fetchWithRetry: does not retry on 400', async () => {
   const { port, server, callCount } = await startScriptedServer([
-    (req, res) => { res.writeHead(400); res.end('{"err":1}'); },
+    (req, res) => {
+      res.writeHead(400);
+      res.end('{"err":1}');
+    },
   ]);
   try {
     const r = await p.fetchWithRetry(`http://127.0.0.1:${port}/x`, {});
@@ -91,8 +108,14 @@ test('fetchWithRetry: does not retry on 400', async () => {
 
 test('fetchWithRetry: honors Retry-After numeric', async () => {
   const { port, server, callCount } = await startScriptedServer([
-    (req, res) => { res.writeHead(429, { 'retry-after': '1' }); res.end(); },
-    (req, res) => { res.writeHead(200); res.end('{}'); },
+    (req, res) => {
+      res.writeHead(429, { 'retry-after': '1' });
+      res.end();
+    },
+    (req, res) => {
+      res.writeHead(200);
+      res.end('{}');
+    },
   ]);
   try {
     const start = Date.now();
@@ -113,7 +136,10 @@ test('fetchWithRetry: returns last retryable response after deadline', async () 
   // so we just verify the function gives up after many failures and
   // returns the last error response.
   const { port, server, callCount } = await startScriptedServer(
-    Array(20).fill((req, res) => { res.writeHead(503); res.end(); })
+    Array(20).fill((req, res) => {
+      res.writeHead(503);
+      res.end();
+    }),
   );
   try {
     const r = await p.fetchWithRetry(`http://127.0.0.1:${port}/x`, {});

@@ -40,7 +40,7 @@ function loadProxy(args = []) {
   //    in unit tests — we don't start the server).
   transformed = transformed.replace(
     /const http = require\('http'\);/,
-    '/* const http = require("http"); — stubbed in test loader */'
+    '/* const http = require("http"); — stubbed in test loader */',
   );
 
   // 2) Replace the top-level config block that depends on parseArgs + env.
@@ -48,7 +48,7 @@ function loadProxy(args = []) {
   //    line and ends right before the `function parseArgs` definition.
   transformed = transformed.replace(
     /const args = parseArgs\(process\.argv\.slice\(2\)\);[\s\S]*?function parseArgs/,
-    '/* config + args prelude stubbed in test loader */\nfunction parseArgs'
+    '/* config + args prelude stubbed in test loader */\nfunction parseArgs',
   );
 
   // 3) Replace the trailing server creation + listen block. It begins with
@@ -61,7 +61,7 @@ function loadProxy(args = []) {
       'contextScale, mapToolChoice, mapFinishReason, anthropicToOpenAITools, ' +
       'parseSSEEvents, anthropicToOpenAIMessages, resolveImageSource, fetchWithRetry, ' +
       'isRetryableNetworkError, parseRetryAfter, StreamBuilder, anthropicError, ' +
-      'writeJsonError, sse, estimateInputTokens };'
+      'writeJsonError, sse, estimateInputTokens };',
   );
 
   // 4) Run parseArgs with the test-provided argv, then build the same config
@@ -69,16 +69,17 @@ function loadProxy(args = []) {
   //    `resolveImageSource` (IMAGE_FETCH, MAX_IMAGE_BYTES) and other helpers,
   //    so we have to recreate them here.
   const __args = JSON.parse(JSON.stringify(args));
-  const prelude = [
-    `const __args = ${JSON.stringify(args)};`,
-    `const args = __args;`,
-    `const BASE = (args.base || '').replace(/\\/$/, '') || 'http://localhost:11434/v1';`,
-    `const KEY = args.key || '';`,
-    `const PORT = 0;`,
-    `const MODEL_OVERRIDE = args.model || '';`,
-    `const IMAGE_FETCH = !!args.imageFetch;`,
-    `const MAX_IMAGE_BYTES = 20 * 1024 * 1024;`,
-  ].join('\n') + '\n';
+  const prelude =
+    [
+      `const __args = ${JSON.stringify(args)};`,
+      `const args = __args;`,
+      `const BASE = (args.base || '').replace(/\\/$/, '') || 'http://localhost:11434/v1';`,
+      `const KEY = args.key || '';`,
+      `const PORT = 0;`,
+      `const MODEL_OVERRIDE = args.model || '';`,
+      `const IMAGE_FETCH = !!args.imageFetch;`,
+      `const MAX_IMAGE_BYTES = 20 * 1024 * 1024;`,
+    ].join('\n') + '\n';
   const fullSource = prelude + transformed;
 
   const sandbox = {};

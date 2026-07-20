@@ -26,9 +26,9 @@ break Claude Code compatibility for every user of the package.
 If you are touching `lib/proxy.js` logic:
 
 1. Add or update tests in `test/` for any behavioral change.
-2. Explain *why* a behavior change is correct (ideally with a reference
+2. Explain _why_ a behavior change is correct (ideally with a reference
    to Claude Code's or the relevant upstream's documented behavior)
-   rather than just *that* it passes tests.
+   rather than just _that_ it passes tests.
 3. Be aware that the test suite intentionally has dense coverage of
    `cleanupSchemaForChatCompletions` and `StreamBuilder` — those are
    the two areas where silent regressions have the highest blast radius.
