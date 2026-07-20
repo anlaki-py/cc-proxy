@@ -1,0 +1,70 @@
+name: Release
+
+# Publishes the package to npm using OIDC Trusted Publishing (no long-lived
+# NPM_TOKEN secret). Triggered on a v* tag or via manual dispatch.
+#
+# IMPORTANT: the FIRST publish of a brand-new package must still be done
+# manually by a maintainer from their own machine. Trusted Publishing can
+# only be configured once a package exists on the registry. So:
+#
+#   1. Maintainer publishes 1.0.0 by hand with 2FA.
+#   2. Maintainer configures Trusted Publisher on npmjs.com for this repo
+#      and this workflow file.
+#   3. Subsequent releases (e.g. tagging v1.0.1) flow through this workflow.
+#
+# For maximum security, configure the Trusted Publisher to allow only
+# `npm stage publish` (staged publishing), not direct `npm publish`. Under
+# that configuration, this workflow publishes a staged release; a
+# maintainer then reviews and approves it out-of-band via
+# `npm stage approve` after the workflow completes.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write   # required for npm Trusted Publishing (OIDC)
+
+jobs:
+  publish:
+    name: publish to npm
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Pack dry-run (sanity check)
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        # No NPM_TOKEN secret needed. `publishConfig.provenance: true` in
+        # package.json attaches a provenance attestation automatically.
+        # If using staged publishing, change this to:
+        #   npx npm@latest stage publish
+        run: npm publish
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
