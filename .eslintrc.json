@@ -1,0 +1,20 @@
+{
+  "root": true,
+  "env": {
+    "node": true,
+    "es2024": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2024,
+    "sourceType": "script"
+  },
+  "rules": {
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    "no-undef": "error"
+  },
+  "ignorePatterns": [
+    "node_modules/",
+    "coverage/",
+    "test/fixtures/"
+  ]
+}
