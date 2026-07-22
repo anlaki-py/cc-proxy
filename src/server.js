@@ -68,7 +68,12 @@ function startServer(config) {
     }
 
     let raw = '';
-    for await (const chunk of req) raw += chunk;
+    try {
+      for await (const chunk of req) raw += chunk;
+    } catch (e) {
+      if (res.writableEnded || res.destroyed) return;
+      return writeJsonError(res, 502, 'request aborted: ' + e.message);
+    }
 
     let anth;
     try {
@@ -88,6 +93,7 @@ function startServer(config) {
       oaiReq = await buildOpenAIRequest(anth);
     } catch (e) {
       if (process.env.LOG) console.log('  <- build error:', e.message);
+      if (res.writableEnded || res.destroyed) return;
       res.writeHead(400, { 'content-type': 'application/json' });
       res.end(
         JSON.stringify({
@@ -124,6 +130,7 @@ function startServer(config) {
       );
     } catch (e) {
       if (process.env.LOG) console.log('  <- upstream fetch failed:', e.message);
+      if (res.writableEnded || res.destroyed) return;
       res.writeHead(502, { 'content-type': 'application/json' });
       res.end(
         JSON.stringify({
@@ -144,6 +151,7 @@ function startServer(config) {
       const msg = parsed?.error?.message || errText || `upstream returned ${upstream.status}`;
       if (process.env.LOG)
         console.log('  <- upstream error', upstream.status, errText.slice(0, 500));
+      if (res.writableEnded || res.destroyed) return;
       res.writeHead(upstream.status, { 'content-type': 'application/json' });
       res.end(
         JSON.stringify({
@@ -276,6 +284,18 @@ function startServer(config) {
       } catch (e) {}
     } finally {
       clearInterval(pingTimer);
+    }
+  });
+
+  // Catch raw socket-level errors (ECONNRESET, etc.) that never reach the
+  // request handler. Without this, Node defaults to destroying the socket
+  // silently, but the async request handler may still reject unhandled.
+  server.on('clientError', (err, socket) => {
+    if (process.env.LOG) console.error('clientError:', err.code || err.message);
+    if (socket.writable && !socket.destroyed) {
+      socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+    } else {
+      socket.destroy(err);
     }
   });
 
