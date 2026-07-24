@@ -119,7 +119,7 @@ function fetch_(url, opts = {}) {
 
 test('HEAD / returns 200', async (t) => {
   const up = makeUpstream();
-  const { port: uport, base } = await up.listen();
+  const { base } = await up.listen();
   const proxy = await startProxy(allocPort(), base, 'test-key');
   t.after(() => Promise.all([stopProxy(proxy), up.close()]));
   const r = await fetch_(`http://127.0.0.1:${proxy.port}/`, { method: 'HEAD' });
@@ -153,6 +153,34 @@ test('GET /v1/models passes through to upstream', async (t) => {
   assert.equal(r.status, 200);
   const j = JSON.parse(r.body);
   assert.equal(j.data[0].id, 'gpt-4o');
+});
+
+test('GET /v1/models: 502 when upstream returns non-ok', async (t) => {
+  const up = makeUpstream();
+  up.addHandler((ctx, res) => {
+    res.writeHead(500, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: 'boom' } }));
+  });
+  const { base } = await up.listen();
+  const proxy = await startProxy(allocPort(), base, 'test-key');
+  t.after(() => Promise.all([stopProxy(proxy), up.close()]));
+  const r = await fetch_(`http://127.0.0.1:${proxy.port}/v1/models`);
+  assert.equal(r.status, 502);
+  const j = JSON.parse(r.body);
+  assert.equal(j.type, 'error');
+  assert.match(j.error.message, /upstream \/models returned 500/);
+  assert.match(j.request_id, /^req_/);
+});
+
+test('GET /v1/models: 502 when upstream is unreachable', async (t) => {
+  // No upstream bound; the proxy's fetch will throw.
+  const proxy = await startProxy(allocPort(), 'http://127.0.0.1:1/v1', 'test-key');
+  t.after(() => stopProxy(proxy));
+  const r = await fetch_(`http://127.0.0.1:${proxy.port}/v1/models`);
+  assert.equal(r.status, 502);
+  const j = JSON.parse(r.body);
+  assert.equal(j.type, 'error');
+  assert.match(j.error.message, /upstream \/models fetch failed/);
 });
 
 test('POST /v1/messages?beta=true: non-streaming round-trip', async (t) => {

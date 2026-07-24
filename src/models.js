@@ -45,7 +45,7 @@ function scaleUsage(usage, model) {
 function estimateInputTokens(oaiReq) {
   try {
     return Math.ceil(JSON.stringify(oaiReq.messages).length / 4);
-  } catch (e) {
+  } catch {
     return 0;
   }
 }

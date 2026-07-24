@@ -3,6 +3,7 @@
 // ---------- HTTP server ----------
 
 const http = require('http');
+const process = require('node:process');
 
 const { msgId, reqId } = require('./ids.js');
 const { anthropicError, writeJsonError } = require('./errors.js');
@@ -50,11 +51,33 @@ function startServer(config) {
           headers: KEY ? { authorization: `Bearer ${KEY}` } : {},
         });
         const data = await r.json();
+        if (!r.ok) {
+          // Forward upstream failures as 502 in the Anthropic error envelope
+          // so Claude Code surfaces them instead of silently seeing an empty
+          // model list masked as success.
+          if (res.writableEnded || res.destroyed) return;
+          res.writeHead(502, { 'content-type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              type: 'error',
+              error: anthropicError(502, `upstream /models returned ${r.status}`).error,
+              request_id: reqId(),
+            }),
+          );
+          return;
+        }
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify(data));
-      } catch (e) {
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ object: 'list', data: [] }));
+      } catch {
+        if (res.writableEnded || res.destroyed) return;
+        res.writeHead(502, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            type: 'error',
+            error: anthropicError(502, 'upstream /models fetch failed').error,
+            request_id: reqId(),
+          }),
+        );
       }
       return;
     }
@@ -147,7 +170,7 @@ function startServer(config) {
       let parsed = null;
       try {
         parsed = JSON.parse(errText);
-      } catch (e) {}
+      } catch {}
       const msg = parsed?.error?.message || errText || `upstream returned ${upstream.status}`;
       if (process.env.LOG)
         console.log('  <- upstream error', upstream.status, errText.slice(0, 500));
@@ -179,7 +202,7 @@ function startServer(config) {
           let input = {};
           try {
             input = JSON.parse(tc.function?.arguments || '{}');
-          } catch (e) {}
+          } catch {}
           content.push({ type: 'tool_use', id: tc.id, name: tc.function.name, input });
         }
       }
@@ -281,7 +304,7 @@ function startServer(config) {
       console.error('stream error:', e);
       try {
         res.end();
-      } catch (e) {}
+      } catch {}
     } finally {
       clearInterval(pingTimer);
     }

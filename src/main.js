@@ -6,6 +6,8 @@
 // `require('../lib/proxy.js')` boots the proxy the same way the old monolith
 // did. Kept side-effect-only so this file has nothing else to export.
 
+const process = require('node:process');
+
 const { parseArgs } = require('./cli.js');
 const { startServer } = require('./server.js');
 const { loadCatalog } = require('./catalog.js');
@@ -87,6 +89,38 @@ async function boot(argv) {
     );
     console.log('');
   });
+
+  // Graceful shutdown. On SIGTERM/SIGINT we stop accepting new connections and
+  // let in-flight requests drain. Each handler removes itself so a second
+  // signal falls through to Node's default (immediate exit) — matching
+  // conventional Ctrl-C-twice-to-force behavior. A hard timeout (default
+  // 10s, overridable via CCPROXY_SHUTDOWN_TIMEOUT_MS) prevents a stuck client
+  // from hanging the process.
+  let shuttingDown = false;
+  function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    process.stdout.write(`\ncc-proxy received ${signal}, shutting down...\n`);
+    process.removeListener('SIGTERM', onTerm);
+    process.removeListener('SIGINT', onInt);
+    const forceAfter = Number(process.env.CCPROXY_SHUTDOWN_TIMEOUT_MS) || 10000;
+    const timer = setTimeout(() => {
+      process.stderr.write('cc-proxy: forcing exit after shutdown timeout\n');
+      process.exit(1);
+    }, forceAfter).unref();
+    server.close(() => {
+      clearTimeout(timer);
+      process.exit(0);
+    });
+  }
+  function onTerm() {
+    shutdown('SIGTERM');
+  }
+  function onInt() {
+    shutdown('SIGINT');
+  }
+  process.on('SIGTERM', onTerm);
+  process.on('SIGINT', onInt);
 
   return server;
 }

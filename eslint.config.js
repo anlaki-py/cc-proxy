@@ -17,7 +17,16 @@ module.exports = [
       },
     },
     rules: {
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      'no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          // Optional catch binding (catch {}) is preferred for unused errors;
+          // allow `catch (_)` as a fallback for explicit intent.
+          caughtErrors: 'none',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
       'no-undef': 'error',
     },
   },

@@ -192,7 +192,7 @@ function parseSSEEvents(buf) {
     if (!data || data === '[DONE]') continue;
     try {
       events.push(JSON.parse(data));
-    } catch (e) {
+    } catch {
       /* skip malformed */
     }
   }

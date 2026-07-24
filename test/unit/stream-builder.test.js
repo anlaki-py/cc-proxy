@@ -21,7 +21,7 @@ function parseSSE(s) {
     if (event && data) {
       try {
         events.push({ event, data: JSON.parse(data) });
-      } catch (e) {
+      } catch {
         /* skip */
       }
     }

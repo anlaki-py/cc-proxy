@@ -5,7 +5,6 @@
 // automatically by `npm run pretest` (which the regular `npm test` chains
 // to). Safe to run repeatedly — overwrites the cache file.
 
-const path = require('node:path');
 const process = require('node:process');
 const { loadCatalog } = require('../src/catalog.js');
 

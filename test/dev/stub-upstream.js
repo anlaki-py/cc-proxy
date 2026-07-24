@@ -3,8 +3,6 @@
 //   POST /chat/completions        — chat
 //   GET  /img.png                 — small image used by --image-fetch test
 const http = require('http');
-const fs = require('fs');
-const path = require('path');
 
 // Counters to drive retry behavior per-path
 const state = {

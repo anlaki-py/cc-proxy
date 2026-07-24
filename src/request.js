@@ -2,6 +2,8 @@
 
 // ---------- Anthropic request -> OpenAI request ----------
 
+const process = require('node:process');
+
 const { needsMaxCompletionTokens, capMaxTokens } = require('./models.js');
 const { cleanupSchemaForChatCompletions } = require('./schema.js');
 const { applyThinking } = require('./thinking.js');

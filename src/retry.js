@@ -12,6 +12,8 @@
 // diverge by including 429 (CLASP misses it) and 529 (CLASP excludes it),
 // and we honor Retry-After.
 
+const process = require('node:process');
+
 const RETRY_BASE_MS = 250;
 const RETRY_MAX_MS = 4000;
 // Overridable via env so tests can shorten the deadline; 30s in prod.
@@ -90,7 +92,7 @@ async function fetchWithRetry(url, opts, signal) {
     // Drain so the connection can be reused for the next attempt.
     try {
       await r.text();
-    } catch (_) {}
+    } catch {}
     const retryAfter = parseRetryAfter(r.headers.get('retry-after'));
     const delay =
       retryAfter ?? Math.min(RETRY_BASE_MS * 2 ** attempt + Math.random() * 100, RETRY_MAX_MS);
@@ -102,13 +104,12 @@ async function fetchWithRetry(url, opts, signal) {
 }
 
 // Returns an AbortSignal that fires when the client disconnects mid-request.
+// AbortController is global on Node 18+ — no feature check needed.
 function reqAbortSignal(req) {
-  if (typeof AbortSignal.timeout === 'function' && req) {
-    const ac = new AbortController();
-    req.on('close', () => ac.abort());
-    return ac.signal;
-  }
-  return undefined;
+  if (!req) return undefined;
+  const ac = new AbortController();
+  req.on('close', () => ac.abort());
+  return ac.signal;
 }
 
 module.exports = {

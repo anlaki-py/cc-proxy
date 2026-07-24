@@ -7,6 +7,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Graceful shutdown on SIGTERM/SIGINT. The proxy stops accepting new
+  connections and lets in-flight requests drain before exiting. A second
+  signal forces an immediate exit (conventional Ctrl-C-twice behavior).
+  The drain timeout defaults to 10s and is overridable via
+  `CCPROXY_SHUTDOWN_TIMEOUT_MS`.
 - `src/catalog.js` — pulls model metadata from `https://models.dev/api.json`
   at boot. First-ever boot blocks briefly to download; subsequent boots
   return instantly from `.cache/models.dev.json` and fire a background
@@ -23,6 +28,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   automatically as part of `npm run pretest`.
 
 ### Changed
+- `GET /v1/models` now returns `502` in the Anthropic error envelope when
+  the upstream `/models` call fails (network error or non-2xx response),
+  instead of masking the failure with `200` and an empty model list. This
+  lets Claude Code surface upstream outages instead of silently treating
+  them as "no models available."
 - `src/models.js` — dropped the hardcoded `MODEL_MAX_TOKENS` and
   `MODEL_CONTEXT_LIMITS` tables. `getModelContextLimit`, `capMaxTokens`,
   and `needsMaxCompletionTokens` now look up `limit.context`,
@@ -40,9 +50,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before being forwarded. Behavior is otherwise identical.
 - `src/main.js` — awaits `loadCatalog()` before `startServer()` so the
   proxy never serves a request with an empty catalog.
+- `src/catalog.js`, `src/request.js`, `src/retry.js`, `src/server.js`,
+  `src/main.js` — added explicit `require('node:process')` for consistency
+  with the rest of the tree rather than relying on the global `process`.
+- `src/retry.js` — `reqAbortSignal` no longer guards on
+  `typeof AbortSignal.timeout === 'function'` (a vestigial check for an API
+  it never used); it now only checks for a request object.
 - `scripts/run-tests.js` — unit tests now run serially (concurrency=1).
   The HTTP-server-based retry tests were flaky on Windows when many
   files spun up loopback servers concurrently.
+
+### Removed
+- Dead state in `src/catalog.js`: the write-only `lastLoaded` timestamp
+  and the write-only `bestExactProvider` loop variable have been removed.
+
+### Fixed
+- `package.json` — `globals` is now a direct devDependency (it is
+  `require`d by `eslint.config.js` but was previously only available via a
+  transitive install of `eslint`). A future `eslint` minor bump could
+  otherwise have broken `npm run lint` on a fresh install.
+- ESLint is now clean: all 17 pre-existing `no-unused-vars` warnings are
+  resolved. Unused `catch (e)` bindings were converted to optional catch
+  binding (`catch {}`), and the lint rule now also ignores `catch (_)`.
 
 ## [1.0.0] - 2026-07-20
 

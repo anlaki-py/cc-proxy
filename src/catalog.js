@@ -26,7 +26,6 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
 // In-memory pointer. Swapped atomically when a background refresh succeeds.
 let currentCatalog = null;
-let lastLoaded = 0; // ms timestamp of the most recent load (file or fresh)
 
 function log(line) {
   process.stdout.write(`[catalog] ${line}\n`);
@@ -35,7 +34,7 @@ function log(line) {
 function ensureCacheDir() {
   try {
     fs.mkdirSync(CACHE_DIR, { recursive: true });
-  } catch (e) {
+  } catch {
     // .cache dir creation failed (read-only fs?); fall through — we'll just
     // not be able to persist, but the in-memory load still works for this run.
   }
@@ -46,7 +45,7 @@ function readCacheFile() {
     const raw = fs.readFileSync(CACHE_FILE, 'utf8');
     const j = JSON.parse(raw);
     if (j && typeof j === 'object' && j.providers) return j;
-  } catch (e) {
+  } catch {
     // missing or invalid; treat as no cache
   }
   return null;
@@ -58,7 +57,7 @@ function writeCacheFile(data) {
   try {
     fs.writeFileSync(tmp, JSON.stringify(data));
     fs.renameSync(tmp, CACHE_FILE);
-  } catch (e) {
+  } catch {
     // best-effort; not fatal
   }
 }
@@ -86,7 +85,6 @@ function applyInPlace(data) {
   // Atomic pointer swap: consumers calling getCatalog() always see a
   // fully-populated object, never a partial update.
   currentCatalog = data;
-  lastLoaded = Date.now();
 }
 
 function getCatalog() {
@@ -230,7 +228,6 @@ function _findIn(id, data, visited) {
   //    providers (openai/anthropic/google/etc.). These carry the most
   //    authoritative metadata; mirror providers sometimes have stale fields.
   let bestExact = null;
-  let bestExactProvider = null;
   let bestExactScore = -1;
   for (const pname of Object.keys(data.providers)) {
     const p = data.providers[pname];
@@ -239,7 +236,6 @@ function _findIn(id, data, visited) {
     const score = _entryScore(entry, pname);
     if (score > bestExactScore) {
       bestExact = entry;
-      bestExactProvider = pname;
       bestExactScore = score;
     }
   }

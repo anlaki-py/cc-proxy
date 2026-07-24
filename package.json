@@ -55,6 +55,7 @@
   },
   "devDependencies": {
     "eslint": "^9.x",
+    "globals": "^14.0.0",
     "prettier": "^3.x"
   }
 }
