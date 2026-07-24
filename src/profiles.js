@@ -37,8 +37,7 @@ function parseStoreJson(raw) {
       key: typeof p.key === 'string' ? p.key : '',
     };
   }
-  const lastUsed =
-    typeof j.lastUsed === 'string' && cleaned[j.lastUsed] ? j.lastUsed : null;
+  const lastUsed = typeof j.lastUsed === 'string' && cleaned[j.lastUsed] ? j.lastUsed : null;
   return { profiles: cleaned, lastUsed };
 }
 
@@ -173,9 +172,7 @@ async function selectFromList(items, options = {}) {
 
   try {
     for (;;) {
-      const key = options.readKey
-        ? await options.readKey()
-        : await readArrowKey(stdin);
+      const key = options.readKey ? await options.readKey() : await readArrowKey(stdin);
 
       if (key === 'abort') {
         stdout.write(showCursor);
