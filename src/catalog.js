@@ -24,8 +24,45 @@ const CACHE_DIR = path.join(process.cwd(), '.cache');
 const CACHE_FILE = path.join(CACHE_DIR, 'models.dev.json');
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
+// Vendored copy of models.dev's api.json, shipped inside the package. This is
+// the seed: a fresh clone (or `npm install -g cc-proxy`) has data available at
+// first boot with no network round-trip. The background refresh in
+// loadCatalog() still updates the in-memory copy and the on-disk .cache file
+// when it can, so the bundled copy is never more stale than the release date.
+//
+// We probe a few candidate paths because the module can live in two layouts:
+//   * unbundled (tests, src/ running directly): the JSON sits next to us in
+//     src/catalog-data.json — `__dirname + 'catalog-data.json'`.
+//   * bundled (npm/published, bin/cc-proxy.js -> lib/proxy.js): the JSON is
+//     shipped at src/catalog-data.json one level up from lib/.
+//   * manual curl-install (lib/proxy.js only): no JSON is available — we
+//     return null and the network fetch path in loadCatalog() takes over.
+let _bundledCatalogCache;
+
 // In-memory pointer. Swapped atomically when a background refresh succeeds.
 let currentCatalog = null;
+
+function readBundledCatalog() {
+  if (_bundledCatalogCache !== undefined) return _bundledCatalogCache;
+  const candidates = [
+    path.join(__dirname, 'catalog-data.json'),
+    path.join(__dirname, '..', 'src', 'catalog-data.json'),
+  ];
+  for (const p of candidates) {
+    try {
+      const raw = fs.readFileSync(p, 'utf8');
+      const j = JSON.parse(raw);
+      if (j && typeof j === 'object' && j.providers) {
+        _bundledCatalogCache = j;
+        return j;
+      }
+    } catch {
+      // missing or corrupt at this path — try the next candidate
+    }
+  }
+  _bundledCatalogCache = null;
+  return null;
+}
 
 function log(line) {
   process.stdout.write(`[catalog] ${line}\n`);
@@ -90,6 +127,18 @@ function applyInPlace(data) {
 function getCatalog() {
   return currentCatalog;
 }
+
+// Module-init: seed the in-memory catalog from the vendored bundled copy so
+// lookups work even before the async loadCatalog() at boot has run, and on
+// fresh installs with no .cache file. The background refresh path overrides
+// this pointer when it succeeds. readBundledCatalog() returns null if the
+// bundled file is absent (e.g. running from raw src/ without the JSON) — in
+// which case the catalog stays empty until loadCatalog() runs.
+(function seedFromBundle() {
+  if (currentCatalog) return;
+  const bundled = readBundledCatalog();
+  if (bundled) applyInPlace(bundled);
+})();
 
 // loadCatalog(): await once at boot.
 //   * If we have a valid cache file (any age), use it and return immediately.
@@ -204,11 +253,26 @@ function _entryScore(entry, providerName) {
   return n;
 }
 
-function findModel(bareId, catalog) {
+// findModelEntry(bareId, catalog?) — resolves a model id and returns
+//   { entry, providerName } where providerName is the catalog provider the
+//   winning entry was sourced from. Returns null if not found.
+//
+// `providerName` is the catalog metadata provider, NOT necessarily the
+// upstream the request is routed through — `moonshotai/kimi-k2.6` resolves
+// here to the `moonshotai` catalog provider (and `nvidia/nemotron-30b` to
+// `openrouter`, via the canonical score bonus). NIM-specific request shaping
+// is gated on the model's `-[Provider]` suffix (see src/nim.js isNimModel),
+// which is why this value is exported only for diagnostics, not as the gate.
+function findModelEntry(bareId, catalog) {
   if (!bareId) return null;
   const data = catalog || currentCatalog;
   if (!data || !data.providers) return null;
   return _findIn(bareId, data, new Set());
+}
+
+function findModel(bareId, catalog) {
+  const r = findModelEntry(bareId, catalog);
+  return r ? r.entry : null;
 }
 
 function _findIn(id, data, visited) {
@@ -221,7 +285,7 @@ function _findIn(id, data, visited) {
     const pname = id.slice(0, slash);
     const mid = id.slice(slash + 1);
     const p = data.providers[pname];
-    if (p && p.models && p.models[mid]) return p.models[mid];
+    if (p && p.models && p.models[mid]) return { entry: p.models[mid], providerName: pname };
   }
 
   // 1. exact id — when multiple providers have the same id, prefer canonical
@@ -229,6 +293,7 @@ function _findIn(id, data, visited) {
   //    authoritative metadata; mirror providers sometimes have stale fields.
   let bestExact = null;
   let bestExactScore = -1;
+  let bestExactProvider = null;
   for (const pname of Object.keys(data.providers)) {
     const p = data.providers[pname];
     if (!p.models || !p.models[id]) continue;
@@ -237,14 +302,16 @@ function _findIn(id, data, visited) {
     if (score > bestExactScore) {
       bestExact = entry;
       bestExactScore = score;
+      bestExactProvider = pname;
     }
   }
-  if (bestExact) return bestExact;
+  if (bestExact) return { entry: bestExact, providerName: bestExactProvider };
 
   // 3. case-insensitive — same canonical-preference logic
   const lower = id.toLowerCase();
   let bestCI = null;
   let bestCIScore = -1;
+  let bestCIProvider = null;
   for (const pname of Object.keys(data.providers)) {
     const p = data.providers[pname];
     if (!p.models) continue;
@@ -254,10 +321,11 @@ function _findIn(id, data, visited) {
       if (s > bestCIScore) {
         bestCI = entry;
         bestCIScore = s;
+        bestCIProvider = pname;
       }
     }
   }
-  if (bestCI) return bestCI;
+  if (bestCI) return { entry: bestCI, providerName: bestCIProvider };
 
   // 4. suffix strip: progressively remove trailing '-<word>' segments.
   //    Stops at the first match, when no more dashes remain, or when we
@@ -281,14 +349,20 @@ function modelSupportsVision(model) {
 }
 
 // loadCatalogSync() — synchronous load from disk only. No network. Returns
-// the cached catalog if available, or null if not. Used by tests so they
-// don't need a before() hook. The integration test / production path uses
+// the cached catalog if available; otherwise the vendored bundled copy;
+// otherwise null. Used by tests so they don't need a before() hook, and as a
+// last-resort sync source. The integration test / production path uses
 // the async loadCatalog() which handles the network fetch.
 function loadCatalogSync() {
   const cached = readCacheFile();
   if (cached) {
     applyInPlace(cached);
     return cached;
+  }
+  const bundled = readBundledCatalog();
+  if (bundled) {
+    applyInPlace(bundled);
+    return bundled;
   }
   return null;
 }
@@ -298,6 +372,7 @@ module.exports = {
   loadCatalogSync,
   getCatalog,
   findModel,
+  findModelEntry,
   stripProviderSuffix,
   modelSupportsVision,
   CACHE_FILE,

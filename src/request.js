@@ -9,6 +9,7 @@ const { cleanupSchemaForChatCompletions } = require('./schema.js');
 const { applyThinking } = require('./thinking.js');
 const { resolveImageSource } = require('./images.js');
 const { modelSupportsVision } = require('./catalog.js');
+const { isNimModel } = require('./nim.js');
 
 // Module-level config that buildOpenAIRequest's single-arg form reads.
 // Forward-compatible 2nd arg opts { modelOverride } overrides it; the server
@@ -28,7 +29,10 @@ async function anthropicToOpenAIMessages(anth, model) {
         ? anth.system
         : (anth.system || []).map((b) => b.text || '').join('\n\n');
     if (sys)
-      out.push({ role: needsMaxCompletionTokens(model) ? 'developer' : 'system', content: sys });
+      out.push({
+        role: needsMaxCompletionTokens(model) && !isNimModel(model) ? 'developer' : 'system',
+        content: sys,
+      });
   }
   for (const m of anth.messages || []) {
     if (typeof m.content === 'string') {

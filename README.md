@@ -121,14 +121,22 @@ To make the env vars stick across shells, put the `export` (Linux/macOS) or
 - Cleans up tool schemas (strips `format: "uri"`, schema-level `strict`,
   re-derives `required` to only truly-required params)
 - Caps `max_tokens` per model family (gpt-4o=16k, o1=100k, etc.) — values
-  are looked up from [models.dev](https://models.dev/) at boot, with a
-  24h on-disk cache (`.cache/models.dev.json`) and a silent background
-  refresh. First-ever boot blocks briefly to download.
+  are looked up from [models.dev](https://models.dev/) at boot. The catalog is
+  vendored as `src/catalog-data.json` (~3 MB, ships in the npm tarball), so
+  first-ever boot no longer blocks on a network download; a 24h on-disk cache
+  (`.cache/models.dev.json`) plus a silent background refresh keep it fresh.
 - Maps `thinking.budget_tokens` to current OpenAI Chat Completions `reasoning_effort`
   enum (`none|low|medium|high|xhigh`); sends `reasoning_effort: 'none'` when Claude
   Code disables thinking, sends `role: 'developer'` instead of `system` for
   reasoning models, and surfaces `output_tokens_details.reasoning_tokens` in the
-  Anthropic `message_delta.usage` so the reasoning cost is visible.
+  Anthropic `message_delta.usage` so the reasoning cost is visible. For a model
+  whose id is tagged `-[Nvidia]` (or `-[NIM]`; extensible via
+  `CCPROXY_NIM_SUFFIXES`) — i.e. one served through NVIDIA NIM, typically via a
+  provider aggregator — it instead emits family-specific `chat_template_kwargs`
+  (`thinking_mode` for minimax, `thinking` for kimi/deepseek,
+  `enable_thinking`+`clear_thinking` for glm) and keeps `role: 'system'`: NIM
+  rejects the top-level `enable_thinking` and the `developer` role. A NIM-tagged
+  model the catalog doesn't know silently drops thinking rather than 400-ing.
 - Stitches streaming tool-call deltas by OpenAI's `index` field
 - Emits proper Anthropic SSE events: `message_start`, `content_block_*`,
   `message_delta`, `message_stop`

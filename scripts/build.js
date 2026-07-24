@@ -30,6 +30,7 @@ const ORDER = [
   'retry',
   'schema',
   'models',
+  'nim',
   'thinking',
   'images',
   'request',

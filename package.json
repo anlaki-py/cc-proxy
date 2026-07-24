@@ -29,6 +29,7 @@
   "files": [
     "bin/",
     "lib/",
+    "src/catalog-data.json",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"

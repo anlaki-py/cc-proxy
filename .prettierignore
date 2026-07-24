@@ -3,3 +3,6 @@ node_modules/
 coverage/
 CHANGELOG.md
 lib/proxy.js
+# Vendored models.dev catalog — a third-party snapshot, not our source.
+# Reformatting 3MB of JSON would produce a giant churn diff for no value.
+src/catalog-data.json
