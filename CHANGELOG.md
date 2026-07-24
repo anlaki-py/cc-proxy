@@ -6,12 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-24
+
 ### Added
-- Graceful shutdown on SIGTERM/SIGINT. The proxy stops accepting new
-  connections and lets in-flight requests drain before exiting. A second
-  signal forces an immediate exit (conventional Ctrl-C-twice behavior).
-  The drain timeout defaults to 10s and is overridable via
-  `CCPROXY_SHUTDOWN_TIMEOUT_MS`.
+- Initial npm-packaged release. The proxy logic itself is unchanged from
+  the pre-npm `proxy.js` script; this release packages it as an
+  installable, tested, linted npm package.
+- `bin/cc-proxy.js` wrapper with Node 18+ version guard.
+- Comprehensive test suite using Node's built-in `node:test` runner
+  (unit + integration tests).
+- CI workflow testing on Node 18, 20, 22, 24 across Linux and Windows.
+- ESLint and Prettier configuration.
+- GitHub Release workflow that creates a release with auto-generated
+  notes when a `v*` tag is pushed.
+- `CONTRIBUTING.md` and `SECURITY.md`.
 - `src/catalog.js` — pulls model metadata from `https://models.dev/api.json`
   at boot. First-ever boot blocks briefly to download; subsequent boots
   return instantly from `.cache/models.dev.json` and fire a background
@@ -26,13 +34,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   warning is logged. The text content of the message is preserved.
 - New `npm run prewarm-catalog` script for one-time cache download. Runs
   automatically as part of `npm run pretest`.
+- Graceful shutdown on SIGTERM/SIGINT. The proxy stops accepting new
+  connections and lets in-flight requests drain before exiting. A second
+  signal forces an immediate exit (conventional Ctrl-C-twice behavior).
+  The drain timeout defaults to 10s and is overridable via
+  `CCPROXY_SHUTDOWN_TIMEOUT_MS`.
 
 ### Changed
-- `GET /v1/models` now returns `502` in the Anthropic error envelope when
-  the upstream `/models` call fails (network error or non-2xx response),
-  instead of masking the failure with `200` and an empty model list. This
-  lets Claude Code surface upstream outages instead of silently treating
-  them as "no models available."
 - `src/models.js` — dropped the hardcoded `MODEL_MAX_TOKENS` and
   `MODEL_CONTEXT_LIMITS` tables. `getModelContextLimit`, `capMaxTokens`,
   and `needsMaxCompletionTokens` now look up `limit.context`,
@@ -50,6 +58,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before being forwarded. Behavior is otherwise identical.
 - `src/main.js` — awaits `loadCatalog()` before `startServer()` so the
   proxy never serves a request with an empty catalog.
+- `GET /v1/models` now returns `502` in the Anthropic error envelope when
+  the upstream `/models` call fails (network error or non-2xx response),
+  instead of masking the failure with `200` and an empty model list. This
+  lets Claude Code surface upstream outages instead of silently treating
+  them as "no models available."
 - `src/catalog.js`, `src/request.js`, `src/retry.js`, `src/server.js`,
   `src/main.js` — added explicit `require('node:process')` for consistency
   with the rest of the tree rather than relying on the global `process`.
@@ -72,17 +85,3 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - ESLint is now clean: all 17 pre-existing `no-unused-vars` warnings are
   resolved. Unused `catch (e)` bindings were converted to optional catch
   binding (`catch {}`), and the lint rule now also ignores `catch (_)`.
-
-## [1.0.0] - 2026-07-20
-
-### Added
-- Initial npm-packaged release. The proxy logic itself is unchanged from
-  the pre-npm `proxy.js` script; this release packages it as an
-  installable, tested, linted npm package.
-- `bin/cc-proxy.js` wrapper with Node 18+ version guard.
-- Comprehensive test suite using Node's built-in `node:test` runner
-  (unit + integration tests).
-- CI workflow testing on Node 18, 20, 22, 24 across Linux and Windows.
-- ESLint and Prettier configuration.
-- Trusted-publishing release workflow with provenance attestation.
-- `CONTRIBUTING.md` and `SECURITY.md`.
