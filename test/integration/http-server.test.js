@@ -360,3 +360,149 @@ test('POST /v1/messages: 502 when upstream is unreachable', async (t) => {
   const j = JSON.parse(r.body);
   assert.match(j.error.message, /upstream fetch failed/);
 });
+
+// ── Port-bump tests ─────────────────────────────────────────────────────────
+
+// Helper: bind a throw-away server on a specific port so it's "in use".
+function occupyPort(port) {
+  return new Promise((resolve, reject) => {
+    const s = http.createServer();
+    s.listen(port, '127.0.0.1', () => resolve(s));
+    s.on('error', reject);
+  });
+}
+
+test('auto-bumps port when preferred port is already in use', async (t) => {
+  const up = makeUpstream();
+  const { base } = await up.listen();
+
+  // Occupy a port so the proxy is forced to try the next one.
+  const preferred = allocPort();
+  const occupier = await occupyPort(preferred);
+  t.after(() =>
+    Promise.all([
+      up.close(),
+      new Promise((r) => occupier.close(r)),
+    ]),
+  );
+
+  // Start proxy on the occupied port; it should bump to preferred+1.
+  const proxy = await (async () => {
+    return new Promise((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        [PROXY_BIN, '--port', String(preferred), '--base', base, '--key', ''],
+        {
+          cwd: PROXY_DIR,
+          env: { ...process.env, LOG: '1' },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      );
+      let stdoutBuf = '';
+      let stderrBuf = '';
+      const onOut = (chunk) => {
+        stdoutBuf += chunk.toString();
+        if (stdoutBuf.includes('listening on')) {
+          child.stdout.off('data', onOut);
+          resolve({ child, stdout: stdoutBuf, stderr: stderrBuf });
+        }
+      };
+      const onErr = (chunk) => {
+        stderrBuf += chunk.toString();
+      };
+      child.stdout.on('data', onOut);
+      child.stderr.on('data', onErr);
+      child.on('exit', (code) =>
+        reject(new Error(`proxy exited early (${code}): ${stdoutBuf} | ${stderrBuf}`)),
+      );
+      setTimeout(
+        () => reject(new Error(`startup timeout: ${stdoutBuf} | ${stderrBuf}`)),
+        6000,
+      );
+    });
+  })();
+
+  t.after(() =>
+    new Promise((r) => {
+      proxy.child.once('exit', r);
+      proxy.child.kill('SIGTERM');
+      setTimeout(() => proxy.child.kill('SIGKILL'), 2000);
+    }),
+  );
+
+  // stderr must contain the "port in use, trying" warning.
+  assert.match(
+    proxy.stderr,
+    /port \d+ is already in use, trying \d+/,
+    `Expected port-bump warning in stderr; got: ${proxy.stderr}`,
+  );
+
+  // stdout must advertise the bumped port (preferred+1).
+  const bumped = preferred + 1;
+  assert.match(
+    proxy.stdout,
+    new RegExp(`listening on http://localhost:${bumped}`),
+    `Expected listening on ${bumped}; got: ${proxy.stdout}`,
+  );
+
+  // The proxy must actually accept connections on the bumped port.
+  const r = await fetch_(`http://127.0.0.1:${bumped}/health`);
+  assert.equal(r.status, 200);
+  const j = JSON.parse(r.body);
+  assert.equal(j.status, 'ok');
+});
+
+test('cascades through multiple occupied ports', async (t) => {
+  const up = makeUpstream();
+  const { base } = await up.listen();
+
+  const preferred = allocPort();
+  // Occupy two consecutive ports.
+  const occupier1 = await occupyPort(preferred);
+  const occupier2 = await occupyPort(preferred + 1);
+  t.after(() =>
+    Promise.all([
+      up.close(),
+      new Promise((r) => occupier1.close(r)),
+      new Promise((r) => occupier2.close(r)),
+    ]),
+  );
+
+  const proxy = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [PROXY_BIN, '--port', String(preferred), '--base', base, '--key', ''],
+      {
+        cwd: PROXY_DIR,
+        env: { ...process.env, LOG: '1' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    let stdoutBuf = '';
+    let stderrBuf = '';
+    child.stdout.on('data', (c) => {
+      stdoutBuf += c.toString();
+      if (stdoutBuf.includes('listening on')) resolve({ child, stdout: stdoutBuf, stderr: stderrBuf });
+    });
+    child.stderr.on('data', (c) => { stderrBuf += c.toString(); });
+    child.on('exit', (code) =>
+      reject(new Error(`proxy exited early (${code}): ${stdoutBuf} | ${stderrBuf}`)),
+    );
+    setTimeout(() => reject(new Error(`startup timeout: ${stdoutBuf} | ${stderrBuf}`)), 6000);
+  });
+
+  t.after(() =>
+    new Promise((r) => {
+      proxy.child.once('exit', r);
+      proxy.child.kill('SIGTERM');
+      setTimeout(() => proxy.child.kill('SIGKILL'), 2000);
+    }),
+  );
+
+  // Should have bumped twice.
+  const finalPort = preferred + 2;
+  assert.match(proxy.stdout, new RegExp(`listening on http://localhost:${finalPort}`));
+
+  const r = await fetch_(`http://127.0.0.1:${finalPort}/health`);
+  assert.equal(r.status, 200);
+});

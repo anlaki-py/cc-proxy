@@ -13,6 +13,9 @@ const { startServer } = require('./server.js');
 const { loadCatalog } = require('./catalog.js');
 const { resolveFromProfiles } = require('./profiles.js');
 
+// Maximum number of ports to try before giving up when EADDRINUSE is hit.
+const MAX_PORT_ATTEMPTS = 10;
+
 async function boot(argv) {
   const args = parseArgs(argv);
 
@@ -64,31 +67,34 @@ async function boot(argv) {
     maxImageBytes: MAX_IMAGE_BYTES,
   });
 
-  server.listen(PORT, () => {
-    console.log(`Anthropic <-> OpenAI proxy listening on http://localhost:${PORT}`);
-    if (profileName) console.log(`  profile:  ${profileName}`);
-    console.log(`  upstream: ${BASE}`);
-    console.log(`  auth:     ${KEY ? 'bearer ***' + KEY.slice(-4) : 'none'}`);
-    if (MODEL_OVERRIDE) console.log(`  model:    ${MODEL_OVERRIDE} (override)`);
-    console.log('');
-    console.log('To use with Claude Code:');
-    console.log('');
-    console.log('  bash / zsh:');
-    console.log(
-      `    ANTHROPIC_BASE_URL=http://localhost:${PORT} ANTHROPIC_AUTH_TOKEN=any-value claude`,
-    );
-    console.log('');
-    console.log('  PowerShell:');
-    console.log(
-      `    $env:ANTHROPIC_BASE_URL="http://localhost:${PORT}"; $env:ANTHROPIC_AUTH_TOKEN="any-value"; claude`,
-    );
-    console.log('');
-    console.log('  cmd:');
-    console.log(
-      `    set ANTHROPIC_BASE_URL=http://localhost:${PORT} && set ANTHROPIC_AUTH_TOKEN=any-value && claude`,
-    );
-    console.log('');
-  });
+  // Try listening on PORT; if it's taken, increment and retry up to
+  // MAX_PORT_ATTEMPTS times before giving up. Emits a warning so the user
+  // knows which port was actually bound.
+  const boundPort = await listenWithFallback(server, PORT);
+
+  console.log(`Anthropic <-> OpenAI proxy listening on http://localhost:${boundPort}`);
+  if (profileName) console.log(`  profile:  ${profileName}`);
+  console.log(`  upstream: ${BASE}`);
+  console.log(`  auth:     ${KEY ? 'bearer ***' + KEY.slice(-4) : 'none'}`);
+  if (MODEL_OVERRIDE) console.log(`  model:    ${MODEL_OVERRIDE} (override)`);
+  console.log('');
+  console.log('To use with Claude Code:');
+  console.log('');
+  console.log('  bash / zsh:');
+  console.log(
+    `    ANTHROPIC_BASE_URL=http://localhost:${boundPort} ANTHROPIC_AUTH_TOKEN=any-value claude`,
+  );
+  console.log('');
+  console.log('  PowerShell:');
+  console.log(
+    `    $env:ANTHROPIC_BASE_URL="http://localhost:${boundPort}"; $env:ANTHROPIC_AUTH_TOKEN="any-value"; claude`,
+  );
+  console.log('');
+  console.log('  cmd:');
+  console.log(
+    `    set ANTHROPIC_BASE_URL=http://localhost:${boundPort} && set ANTHROPIC_AUTH_TOKEN=any-value && claude`,
+  );
+  console.log('');
 
   // Graceful shutdown. On SIGTERM/SIGINT we stop accepting new connections and
   // let in-flight requests drain. Each handler removes itself so a second
@@ -125,6 +131,52 @@ async function boot(argv) {
   return server;
 }
 
+/**
+ * Attempt to listen on `port`. If EADDRINUSE is thrown, increment and retry
+ * up to MAX_PORT_ATTEMPTS times. Resolves with the port that was actually
+ * bound. Rejects if every attempt fails or a non-EADDRINUSE error is thrown.
+ *
+ * @param {import('node:http').Server} server
+ * @param {number} port  Desired starting port
+ * @returns {Promise<number>}  Bound port
+ */
+function listenWithFallback(server, port) {
+  return new Promise((resolve, reject) => {
+    let attempt = 0;
+
+    function tryListen(p) {
+      server.once('error', onError);
+      server.listen(p, onListening);
+
+      function onListening() {
+        server.removeListener('error', onError);
+        resolve(p);
+      }
+
+      function onError(err) {
+        server.removeListener('listening', onListening);
+        if (err.code !== 'EADDRINUSE') {
+          return reject(err);
+        }
+        attempt++;
+        if (attempt >= MAX_PORT_ATTEMPTS) {
+          return reject(
+            new Error(
+              `could not bind to any port in range ${port}–${p} (all in use)`,
+            ),
+          );
+        }
+        process.stderr.write(
+          `cc-proxy: port ${p} is already in use, trying ${p + 1}...\n`,
+        );
+        tryListen(p + 1);
+      }
+    }
+
+    tryListen(port);
+  });
+}
+
 // Always boot on load. The original monolith ran parseArgs + server.listen at
 // module top level, so `require('../lib/proxy.js')` from bin/cc-proxy.js started
 // the proxy. Bundling must preserve that — main is the last module loaded, and
@@ -134,4 +186,4 @@ boot(process.argv.slice(2)).catch((e) => {
   process.exit(1);
 });
 
-module.exports = { boot };
+module.exports = { boot, listenWithFallback };
