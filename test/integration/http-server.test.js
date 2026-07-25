@@ -363,12 +363,73 @@ test('POST /v1/messages: 502 when upstream is unreachable', async (t) => {
 
 // ── Port-bump tests ─────────────────────────────────────────────────────────
 
-// Helper: bind a throw-away server on a specific port so it's "in use".
+// Helper: bind a throw-away HTTP server on `port` across all interfaces
+// (no host argument → 0.0.0.0), matching the proxy's own listen() call.
+// Binding only to 127.0.0.1 does NOT reliably trigger EADDRINUSE on Windows
+// when another process later binds 0.0.0.0 on the same port.
 function occupyPort(port) {
   return new Promise((resolve, reject) => {
     const s = http.createServer();
-    s.listen(port, '127.0.0.1', () => resolve(s));
+    s.listen(port, () => resolve(s));
     s.on('error', reject);
+  });
+}
+
+// Start a proxy child process and resolve once it prints "listening on".
+// Returns { child, stdout, stderr } where stdout/stderr are the *complete*
+// buffers accumulated until the process signals readiness.
+//
+// Key design: stdout and stderr are separate OS-level pipes. On Windows the
+// kernel can deliver them in any order relative to each other, so we MUST NOT
+// snapshot stderrBuf the instant stdout fires — we'd race the warning message.
+// Instead we wait for the 'listening on' line in stdout, then give stderr one
+// extra event-loop drain (setImmediate) to flush any data that arrived in the
+// same I/O batch but hasn't been emitted to us yet.
+function startProxyProcess(port, base, key, extraEnv = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [PROXY_BIN, '--port', String(port), '--base', base, '--key', key],
+      {
+        cwd: PROXY_DIR,
+        env: { ...process.env, LOG: '1', ...extraEnv },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+
+    let stdoutBuf = '';
+    let stderrBuf = '';
+
+    child.stdout.on('data', (c) => { stdoutBuf += c.toString(); });
+    child.stderr.on('data', (c) => { stderrBuf += c.toString(); });
+
+    child.on('exit', (code) => {
+      reject(new Error(`proxy exited early (${code}): ${stdoutBuf} | ${stderrBuf}`));
+    });
+
+    // Poll stdout until the ready banner appears, then drain one more tick so
+    // any stderr that arrived in the same syscall batch can be processed.
+    const poll = setInterval(() => {
+      if (!stdoutBuf.includes('listening on')) return;
+      clearInterval(poll);
+      clearTimeout(timer);
+      // One setImmediate gives libuv time to push any buffered stderr chunks
+      // through the stream machinery before we snapshot the buffer.
+      setImmediate(() => resolve({ child, stdout: stdoutBuf, stderr: stderrBuf }));
+    }, 20);
+
+    const timer = setTimeout(() => {
+      clearInterval(poll);
+      reject(new Error(`startup timeout: ${stdoutBuf} | ${stderrBuf}`));
+    }, 6000);
+  });
+}
+
+function stopProxyProcess(proxy) {
+  return new Promise((r) => {
+    proxy.child.once('exit', r);
+    proxy.child.kill('SIGTERM');
+    setTimeout(() => proxy.child.kill('SIGKILL'), 2000);
   });
 }
 
@@ -376,69 +437,25 @@ test('auto-bumps port when preferred port is already in use', async (t) => {
   const up = makeUpstream();
   const { base } = await up.listen();
 
-  // Occupy a port so the proxy is forced to try the next one.
   const preferred = allocPort();
   const occupier = await occupyPort(preferred);
   t.after(() =>
-    Promise.all([
-      up.close(),
-      new Promise((r) => occupier.close(r)),
-    ]),
+    Promise.all([up.close(), new Promise((r) => occupier.close(r))]),
   );
 
-  // Start proxy on the occupied port; it should bump to preferred+1.
-  const proxy = await (async () => {
-    return new Promise((resolve, reject) => {
-      const child = spawn(
-        process.execPath,
-        [PROXY_BIN, '--port', String(preferred), '--base', base, '--key', ''],
-        {
-          cwd: PROXY_DIR,
-          env: { ...process.env, LOG: '1' },
-          stdio: ['ignore', 'pipe', 'pipe'],
-        },
-      );
-      let stdoutBuf = '';
-      let stderrBuf = '';
-      const onOut = (chunk) => {
-        stdoutBuf += chunk.toString();
-        if (stdoutBuf.includes('listening on')) {
-          child.stdout.off('data', onOut);
-          resolve({ child, stdout: stdoutBuf, stderr: stderrBuf });
-        }
-      };
-      const onErr = (chunk) => {
-        stderrBuf += chunk.toString();
-      };
-      child.stdout.on('data', onOut);
-      child.stderr.on('data', onErr);
-      child.on('exit', (code) =>
-        reject(new Error(`proxy exited early (${code}): ${stdoutBuf} | ${stderrBuf}`)),
-      );
-      setTimeout(
-        () => reject(new Error(`startup timeout: ${stdoutBuf} | ${stderrBuf}`)),
-        6000,
-      );
-    });
-  })();
+  const proxy = await startProxyProcess(preferred, base, '');
+  t.after(() => stopProxyProcess(proxy));
 
-  t.after(() =>
-    new Promise((r) => {
-      proxy.child.once('exit', r);
-      proxy.child.kill('SIGTERM');
-      setTimeout(() => proxy.child.kill('SIGKILL'), 2000);
-    }),
-  );
+  const bumped = preferred + 1;
 
-  // stderr must contain the "port in use, trying" warning.
+  // stderr must carry the "port in use, trying" warning.
   assert.match(
     proxy.stderr,
     /port \d+ is already in use, trying \d+/,
-    `Expected port-bump warning in stderr; got: ${proxy.stderr}`,
+    `Expected port-bump warning in stderr; got: ${JSON.stringify(proxy.stderr)}`,
   );
 
-  // stdout must advertise the bumped port (preferred+1).
-  const bumped = preferred + 1;
+  // stdout must advertise the bumped port.
   assert.match(
     proxy.stdout,
     new RegExp(`listening on http://localhost:${bumped}`),
@@ -448,8 +465,7 @@ test('auto-bumps port when preferred port is already in use', async (t) => {
   // The proxy must actually accept connections on the bumped port.
   const r = await fetch_(`http://127.0.0.1:${bumped}/health`);
   assert.equal(r.status, 200);
-  const j = JSON.parse(r.body);
-  assert.equal(j.status, 'ok');
+  assert.equal(JSON.parse(r.body).status, 'ok');
 });
 
 test('cascades through multiple occupied ports', async (t) => {
@@ -457,7 +473,6 @@ test('cascades through multiple occupied ports', async (t) => {
   const { base } = await up.listen();
 
   const preferred = allocPort();
-  // Occupy two consecutive ports.
   const occupier1 = await occupyPort(preferred);
   const occupier2 = await occupyPort(preferred + 1);
   t.after(() =>
@@ -468,40 +483,21 @@ test('cascades through multiple occupied ports', async (t) => {
     ]),
   );
 
-  const proxy = await new Promise((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      [PROXY_BIN, '--port', String(preferred), '--base', base, '--key', ''],
-      {
-        cwd: PROXY_DIR,
-        env: { ...process.env, LOG: '1' },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      },
-    );
-    let stdoutBuf = '';
-    let stderrBuf = '';
-    child.stdout.on('data', (c) => {
-      stdoutBuf += c.toString();
-      if (stdoutBuf.includes('listening on')) resolve({ child, stdout: stdoutBuf, stderr: stderrBuf });
-    });
-    child.stderr.on('data', (c) => { stderrBuf += c.toString(); });
-    child.on('exit', (code) =>
-      reject(new Error(`proxy exited early (${code}): ${stdoutBuf} | ${stderrBuf}`)),
-    );
-    setTimeout(() => reject(new Error(`startup timeout: ${stdoutBuf} | ${stderrBuf}`)), 6000);
-  });
+  const proxy = await startProxyProcess(preferred, base, '');
+  t.after(() => stopProxyProcess(proxy));
 
-  t.after(() =>
-    new Promise((r) => {
-      proxy.child.once('exit', r);
-      proxy.child.kill('SIGTERM');
-      setTimeout(() => proxy.child.kill('SIGKILL'), 2000);
-    }),
+  const finalPort = preferred + 2;
+
+  // stdout must advertise the final port (bumped twice).
+  assert.match(
+    proxy.stdout,
+    new RegExp(`listening on http://localhost:${finalPort}`),
+    `Expected listening on ${finalPort}; got: ${proxy.stdout}`,
   );
 
-  // Should have bumped twice.
-  const finalPort = preferred + 2;
-  assert.match(proxy.stdout, new RegExp(`listening on http://localhost:${finalPort}`));
+  // Two bump warnings must be in stderr.
+  const warnings = proxy.stderr.match(/port \d+ is already in use, trying \d+/g) || [];
+  assert.equal(warnings.length, 2, `Expected 2 bump warnings; got: ${JSON.stringify(proxy.stderr)}`);
 
   const r = await fetch_(`http://127.0.0.1:${finalPort}/health`);
   assert.equal(r.status, 200);
