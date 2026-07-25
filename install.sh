@@ -2,9 +2,9 @@
 #
 # install.sh — install cc-proxy from a clone of the repo.
 #
-# Default flow:  npm install  →  npm test  →  npm run build  →  npm link
+# Default flow:  npm ci  →  npm test  →  npm run build  →  npm link
 # Flags:
-#   --skip-test      Skip both `npm install` and `npm test` (deps already
+#   --skip-test      Skip both `npm ci` and `npm test` (deps already
 #                    present and a build is all that's needed); still
 #                    builds + links.
 #   -h, --help       Show this message and exit
@@ -46,12 +46,12 @@ fi
 echo "==> cc-proxy install (skip-test=$SKIP_TEST)"
 
 if [ "$SKIP_TEST" -eq 0 ]; then
-  echo "==> npm install"
-  npm install
+  echo "==> npm ci"
+  npm ci
   echo "==> npm test"
   npm test
 else
-  echo "==> (skipping npm install + npm test)"
+  echo "==> (skipping npm ci + npm test)"
 fi
 
 echo "==> npm run build"
