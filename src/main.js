@@ -160,15 +160,9 @@ function listenWithFallback(server, port) {
         }
         attempt++;
         if (attempt >= MAX_PORT_ATTEMPTS) {
-          return reject(
-            new Error(
-              `could not bind to any port in range ${port}–${p} (all in use)`,
-            ),
-          );
+          return reject(new Error(`could not bind to any port in range ${port}–${p} (all in use)`));
         }
-        process.stderr.write(
-          `cc-proxy: port ${p} is already in use, trying ${p + 1}...\n`,
-        );
+        process.stderr.write(`cc-proxy: port ${p} is already in use, trying ${p + 1}...\n`);
         tryListen(p + 1);
       }
     }

@@ -400,8 +400,12 @@ function startProxyProcess(port, base, key, extraEnv = {}) {
     let stdoutBuf = '';
     let stderrBuf = '';
 
-    child.stdout.on('data', (c) => { stdoutBuf += c.toString(); });
-    child.stderr.on('data', (c) => { stderrBuf += c.toString(); });
+    child.stdout.on('data', (c) => {
+      stdoutBuf += c.toString();
+    });
+    child.stderr.on('data', (c) => {
+      stderrBuf += c.toString();
+    });
 
     child.on('exit', (code) => {
       reject(new Error(`proxy exited early (${code}): ${stdoutBuf} | ${stderrBuf}`));
@@ -439,9 +443,7 @@ test('auto-bumps port when preferred port is already in use', async (t) => {
 
   const preferred = allocPort();
   const occupier = await occupyPort(preferred);
-  t.after(() =>
-    Promise.all([up.close(), new Promise((r) => occupier.close(r))]),
-  );
+  t.after(() => Promise.all([up.close(), new Promise((r) => occupier.close(r))]));
 
   const proxy = await startProxyProcess(preferred, base, '');
   t.after(() => stopProxyProcess(proxy));
@@ -497,7 +499,11 @@ test('cascades through multiple occupied ports', async (t) => {
 
   // Two bump warnings must be in stderr.
   const warnings = proxy.stderr.match(/port \d+ is already in use, trying \d+/g) || [];
-  assert.equal(warnings.length, 2, `Expected 2 bump warnings; got: ${JSON.stringify(proxy.stderr)}`);
+  assert.equal(
+    warnings.length,
+    2,
+    `Expected 2 bump warnings; got: ${JSON.stringify(proxy.stderr)}`,
+  );
 
   const r = await fetch_(`http://127.0.0.1:${finalPort}/health`);
   assert.equal(r.status, 200);
