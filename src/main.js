@@ -46,6 +46,7 @@ async function boot(argv) {
         ? profileKey
         : process.env.OPENAI_API_KEY || '';
   const PORT = parseInt(args.port || process.env.PORT || '8082', 10);
+  const HOST = args.host;
   const MODEL_OVERRIDE = args.model || process.env.MODEL_OVERRIDE || '';
   const IMAGE_FETCH = !!args.imageFetch || process.env.IMAGE_FETCH === '1';
   const MAX_IMAGE_BYTES = parseInt(
@@ -70,9 +71,11 @@ async function boot(argv) {
   // Try listening on PORT; if it's taken, increment and retry up to
   // MAX_PORT_ATTEMPTS times before giving up. Emits a warning so the user
   // knows which port was actually bound.
-  const boundPort = await listenWithFallback(server, PORT);
+  const boundPort = await listenWithFallback(server, PORT, HOST);
 
-  console.log(`Anthropic <-> OpenAI proxy listening on http://localhost:${boundPort}`);
+  const displayHost = HOST || 'localhost';
+  const urlHost = displayHost.includes(':') ? `[${displayHost}]` : displayHost;
+  console.log(`Anthropic <-> OpenAI proxy listening on http://${urlHost}:${boundPort}`);
   if (profileName) console.log(`  profile:  ${profileName}`);
   console.log(`  upstream: ${BASE}`);
   console.log(`  auth:     ${KEY ? 'bearer ***' + KEY.slice(-4) : 'none'}`);
@@ -82,17 +85,17 @@ async function boot(argv) {
   console.log('');
   console.log('  bash / zsh:');
   console.log(
-    `    ANTHROPIC_BASE_URL=http://localhost:${boundPort} ANTHROPIC_AUTH_TOKEN=any-value claude`,
+    `    ANTHROPIC_BASE_URL=http://${urlHost}:${boundPort} ANTHROPIC_AUTH_TOKEN=any-value claude`,
   );
   console.log('');
   console.log('  PowerShell:');
   console.log(
-    `    $env:ANTHROPIC_BASE_URL="http://localhost:${boundPort}"; $env:ANTHROPIC_AUTH_TOKEN="any-value"; claude`,
+    `    $env:ANTHROPIC_BASE_URL="http://${urlHost}:${boundPort}"; $env:ANTHROPIC_AUTH_TOKEN="any-value"; claude`,
   );
   console.log('');
   console.log('  cmd:');
   console.log(
-    `    set ANTHROPIC_BASE_URL=http://localhost:${boundPort} && set ANTHROPIC_AUTH_TOKEN=any-value && claude`,
+    `    set ANTHROPIC_BASE_URL=http://${urlHost}:${boundPort} && set ANTHROPIC_AUTH_TOKEN=any-value && claude`,
   );
   console.log('');
 
@@ -138,15 +141,17 @@ async function boot(argv) {
  *
  * @param {import('node:http').Server} server
  * @param {number} port  Desired starting port
+ * @param {string|undefined} host  Optional IP address to bind
  * @returns {Promise<number>}  Bound port
  */
-function listenWithFallback(server, port) {
+function listenWithFallback(server, port, host) {
   return new Promise((resolve, reject) => {
     let attempt = 0;
 
     function tryListen(p) {
       server.once('error', onError);
-      server.listen(p, onListening);
+      if (host === undefined) server.listen(p, onListening);
+      else server.listen(p, host, onListening);
 
       function onListening() {
         server.removeListener('error', onError);

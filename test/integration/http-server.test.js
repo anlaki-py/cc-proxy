@@ -22,11 +22,11 @@ const PROXY_DIR = path.join(__dirname, '..', '..');
 let nextPort = 19000 + Math.floor(Math.random() * 1000);
 const allocPort = () => nextPort++;
 
-function startProxy(port, upstreamBase, key, extraEnv = {}) {
+function startProxy(port, upstreamBase, key, extraEnv = {}, extraArgs = []) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
-      [PROXY_BIN, '--port', String(port), '--base', upstreamBase, '--key', key],
+      [PROXY_BIN, '--port', String(port), '--base', upstreamBase, '--key', key, ...extraArgs],
       {
         cwd: PROXY_DIR,
         env: { ...process.env, LOG: '1', ...extraEnv },
@@ -38,7 +38,7 @@ function startProxy(port, upstreamBase, key, extraEnv = {}) {
       buf += chunk.toString();
       if (buf.includes('listening on')) {
         child.stdout.off('data', onData);
-        resolve({ child, port });
+        resolve({ child, port, stdout: buf });
       }
     };
     child.stdout.on('data', onData);
@@ -125,6 +125,19 @@ test('HEAD / returns 200', async (t) => {
   const r = await fetch_(`http://127.0.0.1:${proxy.port}/`, { method: 'HEAD' });
   assert.equal(r.status, 200);
   assert.equal(r.headers['content-type'], 'application/json');
+});
+
+test('--host binds to the requested IP address', async (t) => {
+  const up = makeUpstream();
+  const { base } = await up.listen();
+  t.after(() => up.close());
+
+  const proxy = await startProxy(allocPort(), base, '', {}, ['--host', '127.0.0.1']);
+  t.after(() => stopProxy(proxy));
+
+  assert.match(proxy.stdout, new RegExp(`listening on http://127\\.0\\.0\\.1:${proxy.port}`));
+  const r = await fetch_(`http://127.0.0.1:${proxy.port}/health`);
+  assert.equal(r.status, 200);
 });
 
 test('GET /health returns status: ok', async (t) => {
