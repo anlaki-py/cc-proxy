@@ -12,6 +12,8 @@ test('parseArgs: long-form flags', () => {
     'http://x.com/v1',
     '--key',
     'sk-123',
+    '--host',
+    '127.0.0.1',
     '--port',
     '9001',
     '--model',
@@ -22,6 +24,7 @@ test('parseArgs: long-form flags', () => {
   ]);
   assert.equal(r.base, 'http://x.com/v1');
   assert.equal(r.key, 'sk-123');
+  assert.equal(r.host, '127.0.0.1');
   assert.equal(r.port, '9001');
   assert.equal(r.model, 'gpt-4o');
   assert.equal(r.imageFetch, true);

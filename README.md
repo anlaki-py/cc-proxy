@@ -108,6 +108,7 @@ To make the env vars stick across shells, put the `export` (Linux/macOS) or
 | ----------------------- | ----------------- | ------------------------------- |
 | `-b, --base`            | `OPENAI_BASE_URL` | `http://localhost:11434/v1`     |
 | `-k, --key`             | `OPENAI_API_KEY`  | _empty_                         |
+| `--host <address>`      |                   | all interfaces                  |
 | `-p, --port`            | `PORT`            | `8082`                          |
 | `-m, --model`           | `MODEL_OVERRIDE`  | _empty_                         |
 | `--image-fetch`         | `IMAGE_FETCH=1`   | _off_ — fetch+base64 URL images |
